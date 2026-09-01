@@ -1,6 +1,7 @@
 <?php if (!defined('HIIFI')) exit('Direct access not allowed.'); ?>
 <!DOCTYPE html><html lang="en"><head>
     <title><?php echo isset($page_title) ? e($page_title) . ' | HIIFI LMS' : 'HIIFI LMS'; ?></title>
+    <link rel="icon" type="image/jpeg" href="<?php echo BASE_URL; ?>assets/img/logo.jpg">
 	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
