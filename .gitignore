@@ -1,0 +1,11 @@
+# Logs & temp
+*.log
+__pycache__/
+*.pyc
+
+# Local dev files (not copied into deploy anyway)
+node_modules/
+crawled/
+bot.py
+crawler.py
+page_dump.py
