@@ -134,8 +134,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border: 1px solid #eef2f7;
         }
         .logo {
-            max-width: 230px;
-            margin-bottom: 8px;
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-bottom: 12px;
+            border: 3px solid #ff8c00;
+            box-shadow: 0 6px 20px rgba(255, 140, 0, 0.35);
         }
         h2 {
             font-size: 26px;
@@ -270,7 +275,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <div class="right-content">
         <div class="login-card" text-align="center">
-            <span class="badge-modern"><i class="fas fa-graduation-cap"></i> HIIFI Learning</span>
             <img src="assets/img/logo.jpg" alt="HIIFI LMS logo" class="logo">
             <h2>Welcome Back</h2>
             <p>Sign in to continue to HIIFI LMS</p>
@@ -298,7 +302,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </form>
         </div>
 
-        <div class="powered-by">Powered by HIIFI LMS</div>
+        <div class="powered-by">Powered by HIFI MARKETING ACADEMY</div>
     </div>
 </div>
 
