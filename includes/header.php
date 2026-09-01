@@ -1,7 +1,7 @@
 <?php if (!defined('HIIFI')) exit('Direct access not allowed.'); ?>
 <!DOCTYPE html><html lang="en"><head>
     <title><?php echo isset($page_title) ? e($page_title) . ' | HIIFI LMS' : 'HIIFI LMS'; ?></title>
-    <link rel="icon" type="image/jpeg" href="<?php echo BASE_URL; ?>assets/img/logo.jpg">
+    <link rel="icon" type="image/png" href="<?php echo BASE_URL; ?>assets/img/favicon.png">
 	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -128,8 +128,8 @@
   .left_col::-webkit-scrollbar-thumb { background: linear-gradient(180deg, rgb(67, 67, 68), rgb(241, 243, 245)); border-radius: 10px; }
   .left_col::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, rgb(86, 85, 87), rgb(237, 232, 247)); }
   .left_col { scrollbar-width: thin; scrollbar-color: rgb(100, 98, 101) transparent; border-top-right-radius: 1%; border-bottom-right-radius: 1%; }
-  .sidebar-logo { text-align: center; padding: 8px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-  .sidebar-logo img { height: 55px; width: 55px; border-radius: 50%; object-fit: cover; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2); }
+  .sidebar-logo { text-align: center; padding: 10px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+  .sidebar-logo img { height: 54px; width: 54px; border-radius: 50%; object-fit: cover; border: 2px solid #ff8c00; box-shadow: 0 4px 14px rgba(255, 140, 0, 0.35); background: #fff; display: block; margin: 0 auto; }
 </style>
 
 <div class="left_col scroll-view" id="dsLeftCol">

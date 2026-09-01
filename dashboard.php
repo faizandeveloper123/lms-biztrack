@@ -624,26 +624,40 @@ if (flip) {
 
 var moneyEls = document.querySelectorAll('.money-value');
 var MASK = '••••••';
-var moneyHidden = localStorage.getItem('hid_money') === '1';
 
 function maskMoney(el, hidden) {
-    if (hidden) { el.textContent = MASK; el.setAttribute('data-hidden','1'); }
-    else { el.textContent = el.getAttribute('data-full'); el.setAttribute('data-hidden','0'); }
+    if (hidden) { el.textContent = MASK; el.setAttribute('data-hidden', '1'); }
+    else { el.textContent = el.getAttribute('data-full'); el.setAttribute('data-hidden', '0'); }
     var icon = el.nextElementSibling;
     if (icon && icon.classList.contains('toggle-money-eye')) {
         icon.className = 'fa fa-' + (hidden ? 'eye' : 'eye-slash') + ' toggle-money-eye';
     }
 }
-function applyMoneyMask(hidden) {
-    moneyEls.forEach(function(el){ maskMoney(el, hidden); });
+function allMoneyHidden() {
+    var all = true;
+    moneyEls.forEach(function(el){ if (el.getAttribute('data-hidden') === '0') all = false; });
+    return all;
+}
+function syncMoneyToggleBtn() {
+    var allHidden = allMoneyHidden();
     var icon = document.getElementById('moneyToggleIcon');
     var lbl  = document.getElementById('moneyToggleLbl');
-    if (icon) { icon.className = hidden ? 'fa fa-eye-slash' : 'fa fa-eye'; }
-    if (lbl)  { lbl.textContent = hidden ? 'Show Values' : 'Hide Values'; }
-    localStorage.setItem('hid_money', hidden ? '1' : '0');
+    if (icon) { icon.className = allHidden ? 'fa fa-eye' : 'fa fa-eye-slash'; }
+    if (lbl)  { lbl.textContent = allHidden ? 'Show Values' : 'Hide Values'; }
 }
-function toggleMoneyVisibility() { moneyHidden = !moneyHidden; applyMoneyMask(moneyHidden); }
-applyMoneyMask(moneyHidden);
+function applyMoneyMask(hidden) {
+    moneyEls.forEach(function(el){ maskMoney(el, hidden); });
+    syncMoneyToggleBtn();
+}
+function toggleMoneyVisibility() {
+    var allHidden = allMoneyHidden();
+    applyMoneyMask(!allHidden);
+    localStorage.setItem('hid_money', allMoneyHidden() ? '1' : '0');
+}
+
+var moneyHidden = localStorage.getItem('hid_money') === '1';
+if (moneyHidden) applyMoneyMask(true);
+syncMoneyToggleBtn();
 
 document.addEventListener('click', function(e) {
     var icon = e.target.closest ? e.target.closest('.toggle-money-eye') : null;
@@ -654,10 +668,7 @@ document.addEventListener('click', function(e) {
     if (!el || !el.classList.contains('money-value')) return;
     var hidden = el.getAttribute('data-hidden') !== '0';
     maskMoney(el, !hidden);
-    var allHidden = true;
-    document.querySelectorAll('.money-value').forEach(function(e){ if (e.getAttribute('data-hidden') === '0') allHidden = false; });
-    moneyHidden = allHidden;
-    applyMoneyMask(moneyHidden);
+    syncMoneyToggleBtn();
 });
 </script>
 
