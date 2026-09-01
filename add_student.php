@@ -12,20 +12,11 @@ $classes = [];
 $res = db_query("SELECT class_id, class_name FROM classes WHERE status=1 ORDER BY class_name");
 while ($row = $res->fetch_assoc()) { $classes[] = $row; }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'AddAdmission') {
-    $first_name  = trim($_POST['first_name'] ?? '');
-    $father_name = trim($_POST['lname'] ?? '');
-    $cellno      = trim($_POST['cellno'] ?? '');
-    $class_id    = (int) ($_POST['class'] ?? 0);
-    $section_id  = (int) ($_POST['section'] ?? 0);
-    $gender      = $_POST['gender'] ?? 'male';
-    $religion    = $_POST['religion'] ?? 'Islam';
-    $dob         = trim($_POST['dob'] ?? '');
-    $admission_date = trim($_POST['date_of_adms'] ?? date('d/M/Y'));
-    $email       = trim($_POST['email'] ?? '');
-    $address     = trim($_POST['address'] ?? '');
-    $mother_name = trim($_POST['mother_name'] ?? '');
+$localities = [];
+$lr = db_query("SELECT locality_id, locality_name FROM localities WHERE status=1");
+while ($row = $lr->fetch_assoc()) { $localities[] = $row; }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'AddAdmission') {
     // Parse dates (format dd/Mmm/yyyy or dd/mm/yyyy)
     function parse_date($d) {
         $d = trim($d);
@@ -34,19 +25,117 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'AddAd
         return $ts ? date('Y-m-d', $ts) : null;
     }
 
+    function val($key) {
+        return isset($_POST[$key]) ? trim($_POST[$key]) : '';
+    }
+    function valNull($key) {
+        $v = val($key);
+        return $v === '' ? null : $v;
+    }
+
+    $first_name     = val('first_name');
+    $father_name    = val('lname');
+    $mother_name    = val('mother_name');
+    $email          = valNull('email');
+    $cellno         = val('cellno');
+    $class_id       = (int) val('class');
+    $section_id     = (int) val('section') ?: null;
+    $dob            = val('dob');
+    $date_of_adms   = val('date_of_adms');
+    $gender         = val('gender') ?: 'male';
+    $religion       = val('religion') ?: 'Islam';
+    $session        = valNull('session');
+    $board_council  = valNull('board_council');
+    $group_shift    = valNull('group_shift');
+    $adm_source     = valNull('adm_source');
+    $locality_id    = val('Locality') !== '' ? (int) val('Locality') : null;
+    $father_cnic    = valNull('cnic');
+    $father_qual    = valNull('Fqualification');
+    $father_bus     = valNull('Fbusiness_address');
+    $father_income  = valNull('Fincome');
+    $father_occ     = valNull('father_occupation');
+    $father_cell    = valNull('father_cellno');
+    $mother_cnic    = valNull('mother_cnic');
+    $mother_qual    = valNull('mother_qualification');
+    $mother_act     = valNull('mother_activity');
+    $mother_desig   = valNull('mother_designation');
+    $mother_cell    = valNull('mother_cell');
+    $formBNo        = valNull('formBNo');
+    $caste          = valNull('cast');
+    $gname          = valNull('gname');
+    $Gcnic          = valNull('Gcnic');
+    $Gcellno        = valNull('Gcellno');
+    $Gqual          = valNull('Gqualification');
+    $Gocc           = valNull('Goccupation');
+    $Gincome        = valNull('Gincome');
+    $gemail         = valNull('gardian_email');
+    $Gaddress       = valNull('Gaddress');
+    $old_class      = valNull('old_class');
+    $old_school     = valNull('old_school');
+    $old_tmarks     = valNull('old_tmarks');
+    $old_obtmarks   = valNull('old_obtmarks');
+    $form_no        = valNull('form_no');
+    $school_leaving = valNull('school_leaving');
+    $whatsapp       = valNull('whatsapp_number');
+    $home_number    = valNull('home_number');
+    $place_of_birth = valNull('place_of_birth');
+    $state          = valNull('state');
+    $city           = valNull('city');
+    $address        = valNull('address');
+    $dob_db         = parse_date($dob);
+    $adm_db         = parse_date($date_of_adms) ?? date('Y-m-d');
+
+    // Photo upload
+    $photo = null;
+    if (!empty($_FILES['img_file']['name']) && $_FILES['img_file']['error'] === UPLOAD_ERR_OK) {
+        $dir = __DIR__ . '/uploads/students';
+        if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+        $ext = strtolower(pathinfo($_FILES['img_file']['name'], PATHINFO_EXTENSION));
+        $photo = 's_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
+        if (!move_uploaded_file($_FILES['img_file']['tmp_name'], $dir . '/' . $photo)) { $photo = null; }
+    }
+
     if ($first_name === '' || $class_id === 0) {
         $error = 'Student Name and Class are required.';
     } else {
-        $sec = $section_id > 0 ? $section_id : null;
-        $stmt = db_prepare("INSERT INTO students (first_name, last_name, father_name, mother_name, email, phone, dob, gender, address, class_id, section_id, admission_date, status)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)");
+        $cols = ['first_name','last_name','father_name','mother_name','email','phone','dob','gender',
+                 'religion','session','board_council','group_shift','admission_source','locality_id',
+                 'father_cnic','father_qualification','father_business_address','father_income',
+                 'father_occupation','father_cellno','mother_cnic','mother_qualification','mother_activity',
+                 'mother_designation','mother_cell','form_b_no','caste','guardian_name','guardian_cnic',
+                 'guardian_cellno','guardian_qualification','guardian_occupation','guardian_income',
+                 'guardian_email','guardian_address','old_class','old_school','old_tmarks','old_obtmarks',
+                 'admission_form_no','school_leaving_reason','whatsapp_number','home_number','place_of_birth',
+                 'state','city','address','class_id','section_id','admission_date','status','photo'];
+
         $lname = $father_name;
-        $dob_db = parse_date($dob);
-        $adm_db = parse_date($admission_date) ?? date('Y-m-d');
-        $stmt->bind_param('sssssssssiis', $first_name, $lname, $father_name, $mother_name, $email, $cellno, $dob_db, $gender, $address, $class_id, $sec, $adm_db);
+        $vals  = [$first_name,$lname,$father_name,$mother_name,$email,$cellno,$dob_db,$gender,
+                 $religion,$session,$board_council,$group_shift,$adm_source,$locality_id,
+                 $father_cnic,$father_qual,$father_bus,$father_income,
+                 $father_occ,$father_cell,$mother_cnic,$mother_qual,$mother_act,
+                 $mother_desig,$mother_cell,$formBNo,$caste,$gname,$Gcnic,
+                 $Gcellno,$Gqual,$Gocc,$Gincome,
+                 $gemail,$Gaddress,$old_class,$old_school,$old_tmarks,$old_obtmarks,
+                 $form_no,$school_leaving,$whatsapp,$home_number,$place_of_birth,
+                 $state,$city,$address,$class_id,$section_id,$adm_db,1,$photo];
+
+        $placeholders = implode(',', array_fill(0, count($cols), '?'));
+        $sql = 'INSERT INTO students (`' . implode('`,`', $cols) . '`) VALUES (' . $placeholders . ')';
         try {
+            $stmt = db_prepare($sql);
+            $types = str_repeat('s', count($vals));
+            $bindVals = [$types];
+            foreach ($vals as $k => $v) { $bindVals[] = &$vals[$k]; }
+            call_user_func_array([$stmt, 'bind_param'], $bindVals);
             $stmt->execute();
-            $message = 'Student added successfully!';
+            $studentId = $stmt->insert_id;
+            if ($studentId > 0) {
+                $gr = substr(date('Y'), 2) . '-' . str_pad($studentId, 3, '0', STR_PAD_LEFT);
+                $u = db_prepare('UPDATE students SET gr_no = ? WHERE student_id = ?');
+                $u->bind_param('si', $gr, $studentId);
+                $u->execute();
+            }
+            $message = 'Student added successfully! GR No: ' . ($studentId > 0 ? $gr : '');
         } catch (Exception $ex) {
             $error = 'Error: ' . $ex->getMessage();
         }
@@ -97,7 +186,8 @@ include __DIR__ . '/includes/header.php';
                     <ul class="icon-tabs" id="studentWizardTabs">
                         <li class="icon-tab-item active" data-tab="basic-info"><i class="fa fa-id-card"></i> Basic Information</li>
                         <li class="icon-tab-item" data-tab="parent-details"><i class="fa fa-user-friends"></i> Parent Details</li>
-                        <li class="icon-tab-item" data-tab="academic-info"><i class="fa fa-graduation-cap"></i> Academic Information</li>
+                        <li class="icon-tab-item" data-tab="guardian-details"><i class="fa fa-user-shield"></i> Guardian Details</li>
+                        <li class="icon-tab-item" data-tab="academic-info"><i class="fa fa-graduation-cap"></i> Previous Education</li>
                         <li class="icon-tab-item" data-tab="contact-info"><i class="fa fa-phone-alt"></i> Contact Information</li>
                         <li class="icon-tab-item" data-tab="documents"><i class="fa fa-file-alt"></i> Documents</li>
                     </ul>
@@ -118,8 +208,8 @@ include __DIR__ . '/includes/header.php';
                                         <input type="text" value="" class="form-control" name="lname" id="last_name" placeholder="Father Name" maxlength="35">
                                     </div>
                                     <div class="form-group col-md-3">
-                                        <label for="cell_no">Cell No / Reporting SMS <span style="color:red;">*</span></label>
-                                        <input type="text" value="" class="form-control" name="cellno" required="" id="cell_no" placeholder="Number">
+                                        <label for="cell_no">Cell Number <span style="color:red;">*</span></label>
+                                        <input type="text" value="" class="form-control" name="cellno" required="" id="cell_no" placeholder="Number / Reporting SMS">
                                     </div>
                                     <div class="form-group col-md-3">
                                         <label>Gender</label>
@@ -132,14 +222,6 @@ include __DIR__ . '/includes/header.php';
                                 </div>
                                 <div class="row">
                                     <div class="form-group col-md-3">
-                                        <label>Date of Birth</label>
-                                        <input type="text" class="form-control" name="dob" id="dob" placeholder="dd/mm/yyyy" value="<?php echo date('d/M/Y'); ?>">
-                                    </div>
-                                    <div class="form-group col-md-3">
-                                        <label>Date of Admission</label>
-                                        <input type="text" class="form-control" name="date_of_adms" id="date_of_adms" placeholder="dd/mm/yyyy" value="<?php echo date('d/M/Y'); ?>">
-                                    </div>
-                                    <div class="form-group col-md-3">
                                         <label>Religion</label>
                                         <select id="religion" name="religion" class="form-control" required="">
                                             <option value="Islam">Islam</option>
@@ -149,8 +231,57 @@ include __DIR__ . '/includes/header.php';
                                         </select>
                                     </div>
                                     <div class="form-group col-md-3">
+                                        <label>Date of Birth</label>
+                                        <input type="text" class="form-control" name="dob" id="dob" placeholder="dd/mm/yyyy" value="<?php echo date('d/M/Y'); ?>">
+                                    </div>
+                                    <div class="form-group col-md-3">
+                                        <label>Date of Admission</label>
+                                        <input type="text" class="form-control" name="date_of_adms" id="date_of_adms" placeholder="dd/mm/yyyy" value="<?php echo date('d/M/Y'); ?>">
+                                    </div>
+                                    <div class="form-group col-md-3">
+                                        <label>Session</label>
+                                        <input type="text" class="form-control" name="session" id="session" placeholder="e.g. <?php echo date('Y') . '-' . substr(date('Y') + 1, 2); ?>" value="<?php echo date('Y') . '-' . substr(date('Y') + 1, 2); ?>">
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="form-group col-md-3">
+                                        <label>Board/Council</label>
+                                        <input type="text" class="form-control" name="board_council" id="board_council" placeholder="e.g. Karachi Board">
+                                    </div>
+                                    <div class="form-group col-md-3">
+                                        <label>Group/Shift</label>
+                                        <input type="text" class="form-control" name="group_shift" id="group_shift" placeholder="e.g. Morning">
+                                    </div>
+                                    <div class="form-group col-md-3">
+                                        <label>Admission Source</label>
+                                        <input type="text" class="form-control" name="adm_source" id="adm_source" placeholder="e.g. Walk-in / Referral">
+                                    </div>
+                                    <div class="form-group col-md-3">
+                                        <label>GR-No</label>
+                                        <input type="text" class="form-control" value="Auto" readonly="" style="background:#f5f6fa; color:#9CA3AF;">
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="form-group col-md-3">
                                         <label>Photo</label>
                                         <input type="file" class="form-control" name="img_file" id="fileInput" accept="image/*">
+                                    </div>
+                                    <div class="form-group col-md-3">
+                                        <label>Locality</label>
+                                        <select name="Locality" id="locality" class="form-control">
+                                            <option value="">Select Locality</option>
+                                            <?php foreach ($localities as $l): ?>
+                                                <option value="<?php echo $l['locality_id']; ?>"><?php echo e($l['locality_name']); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="form-group col-md-3">
+                                        <label>State</label>
+                                        <input type="text" class="form-control" name="state" id="state" placeholder="e.g. Sindh">
+                                    </div>
+                                    <div class="form-group col-md-3">
+                                        <label>City</label>
+                                        <input type="text" class="form-control" name="city" id="city" placeholder="e.g. Karachi">
                                     </div>
                                 </div>
                             </div>
@@ -169,24 +300,26 @@ include __DIR__ . '/includes/header.php';
                                         <input type="text" value="" class="form-control" name="Fqualification" id="father_qualification" placeholder="Father Qualification">
                                     </div>
                                     <div class="form-group col-md-4">
-                                        <label>Father Business Address</label>
-                                        <input type="text" value="" class="form-control" name="Fbusiness_address" id="Fbusiness_address" placeholder="Father Business Address">
-                                    </div>
-                                </div>
-                                <div class="row">
-                                    <div class="form-group col-md-4">
-                                        <label>Father Income</label>
-                                        <input type="text" value="" class="form-control" name="Fincome" id="father_income" placeholder="Father Income">
-                                    </div>
-                                    <div class="form-group col-md-4">
                                         <label>Father Occupation</label>
                                         <select name="father_occupation" id="father_occupation" class="form-control">
                                             <option value="">Select Occupation</option>
                                             <option value="Business">Business</option>
                                             <option value="Government Service">Government Service</option>
                                             <option value="Private Job">Private Job</option>
+                                            <option value="Farmer">Farmer</option>
+                                            <option value="Labour">Labour</option>
                                             <option value="Other">Other</option>
                                         </select>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="form-group col-md-4">
+                                        <label>Father Business Address</label>
+                                        <input type="text" value="" class="form-control" name="Fbusiness_address" id="Fbusiness_address" placeholder="Father Business Address">
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label>Father Income</label>
+                                        <input type="text" value="" class="form-control" name="Fincome" id="father_income" placeholder="Father Income">
                                     </div>
                                     <div class="form-group col-md-4">
                                         <label>Father Cell No</label>
@@ -203,15 +336,11 @@ include __DIR__ . '/includes/header.php';
                                         <input type="text" value="" class="form-control" name="mother_cnic" id="mother_cnic" placeholder="Mother CNIC">
                                     </div>
                                     <div class="form-group col-md-4">
-                                        <label>Mother Cell Number</label>
-                                        <input type="text" value="" class="form-control" name="mother_cell" id="mother_cell" placeholder="Mother Cell Number">
-                                    </div>
-                                </div>
-                                <div class="row">
-                                    <div class="form-group col-md-4">
                                         <label>Mother Qualification</label>
                                         <input type="text" value="" class="form-control" name="mother_qualification" id="mother_qualification" placeholder="Mother Qualification">
                                     </div>
+                                </div>
+                                <div class="row">
                                     <div class="form-group col-md-4">
                                         <label>Mother Activity</label>
                                         <select id="mother_activity" name="mother_activity" class="form-control">
@@ -221,8 +350,66 @@ include __DIR__ . '/includes/header.php';
                                         </select>
                                     </div>
                                     <div class="form-group col-md-4">
-                                        <label>Family Home Address</label>
+                                        <label>Mother Designation</label>
+                                        <input type="text" value="" class="form-control" name="mother_designation" id="mother_designation" placeholder="Mother Designation">
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label>Mother Cell Number</label>
+                                        <input type="text" value="" class="form-control" name="mother_cell" id="mother_cell" placeholder="Mother Cell Number">
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="form-group col-md-6">
+                                        <label>Home Address</label>
                                         <input type="text" value="" class="form-control" name="address" id="address" placeholder="Family Home Address">
+                                    </div>
+                                    <div class="form-group col-md-6">
+                                        <label>Cast</label>
+                                        <input type="text" value="" class="form-control" name="cast" id="cast" placeholder="Cast">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="wizard-pane" id="pane-guardian-details">
+                            <div class="pane-wrap">
+                                <div class="pane-title"><i class="fa fa-user-shield"></i> Guardian Details</div>
+                                <div class="row">
+                                    <div class="form-group col-md-4">
+                                        <label>Guardian Name</label>
+                                        <input type="text" value="" class="form-control" name="gname" id="gardian_name" placeholder="Guardian Name">
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label>Guardian CNIC</label>
+                                        <input type="text" value="" class="form-control" name="Gcnic" id="gardian_cnic" placeholder="Guardian CNIC">
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label>Guardian Cell No</label>
+                                        <input type="text" value="" class="form-control" name="Gcellno" id="gardian_no" placeholder="Guardian Cell No">
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="form-group col-md-4">
+                                        <label>Guardian Qualification</label>
+                                        <input type="text" value="" class="form-control" name="Gqualification" id="gardian_qualification" placeholder="Guardian Qualification">
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label>Guardian Occupation</label>
+                                        <input type="text" value="" class="form-control" name="Goccupation" id="gardian_occupation" placeholder="Guardian Occupation">
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label>Guardian Income</label>
+                                        <input type="text" value="" class="form-control" name="Gincome" id="gardian_income" placeholder="Guardian Income">
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="form-group col-md-4">
+                                        <label>Guardian Email</label>
+                                        <input type="text" value="" class="form-control" name="gardian_email" id="gardian_email" placeholder="Guardian Email">
+                                    </div>
+                                    <div class="form-group col-md-8">
+                                        <label>Guardian Address</label>
+                                        <input type="text" value="" class="form-control" name="Gaddress" id="gardian_address" placeholder="Guardian Address">
                                     </div>
                                 </div>
                             </div>
@@ -248,6 +435,16 @@ include __DIR__ . '/includes/header.php';
                                         </select>
                                     </div>
                                     <div class="form-group col-md-3">
+                                        <label>Admission Form No</label>
+                                        <input type="text" value="" class="form-control" name="form_no" id="adm-no" placeholder="Form Number">
+                                    </div>
+                                    <div class="form-group col-md-3">
+                                        <label>B-Form No</label>
+                                        <input type="text" value="" class="form-control" name="formBNo" id="formBNo" placeholder="Form-B No">
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="form-group col-md-3">
                                         <label>Previous Class</label>
                                         <input type="text" value="" class="form-control" name="old_class" id="old_class" placeholder="Previous Class">
                                     </div>
@@ -255,8 +452,6 @@ include __DIR__ . '/includes/header.php';
                                         <label>Previous Institute</label>
                                         <input type="text" value="" class="form-control" name="old_school" id="old_school" placeholder="Previous Institute">
                                     </div>
-                                </div>
-                                <div class="row">
                                     <div class="form-group col-md-3">
                                         <label>Total Marks</label>
                                         <input type="text" value="" class="form-control" name="old_tmarks" id="old_tmarks" placeholder="Total Marks">
@@ -265,13 +460,19 @@ include __DIR__ . '/includes/header.php';
                                         <label>Obtained Marks</label>
                                         <input type="text" value="" class="form-control" name="old_obtmarks" id="old_obtmarks" placeholder="Obtained Marks">
                                     </div>
-                                    <div class="form-group col-md-3">
-                                        <label>Reason of Previous School Leaving</label>
-                                        <input type="text" value="" class="form-control" name="school_leaving" id="school_leaving" placeholder="Reason">
+                                </div>
+                                <div class="row">
+                                    <div class="form-group col-md-6">
+                                        <label>Reason for Previous School Leaving</label>
+                                        <input type="text" value="" class="form-control" name="school_leaving" id="school_leaving" placeholder="Reason for Previous School Leaving">
                                     </div>
                                     <div class="form-group col-md-3">
-                                        <label>Cast</label>
-                                        <input type="text" value="" class="form-control" name="cast" id="cast" placeholder="Cast">
+                                        <label>Place Of Birth</label>
+                                        <input type="text" value="" class="form-control" name="place_of_birth" id="place_of_birth" placeholder="Place Of Birth">
+                                    </div>
+                                    <div class="form-group col-md-3">
+                                        <label>Home PTCL Number</label>
+                                        <input type="text" value="" class="form-control" name="home_number" id="home_number" placeholder="Home Phone">
                                     </div>
                                 </div>
                             </div>
@@ -281,43 +482,13 @@ include __DIR__ . '/includes/header.php';
                             <div class="pane-wrap">
                                 <div class="pane-title"><i class="fa fa-phone-alt"></i> Contact Information</div>
                                 <div class="row">
-                                    <div class="form-group col-md-3">
+                                    <div class="form-group col-md-6">
                                         <label>Email</label>
                                         <input type="text" value="" class="form-control" name="email" id="email" placeholder="Email">
                                     </div>
-                                    <div class="form-group col-md-3">
+                                    <div class="form-group col-md-6">
                                         <label>Whatsapp Number</label>
                                         <input type="text" value="" class="form-control" name="whatsapp_number" id="whatsapp_number" placeholder="Whatsapp Number">
-                                    </div>
-                                    <div class="form-group col-md-3">
-                                        <label>Home PTCL Number</label>
-                                        <input type="text" value="" class="form-control" name="home_number" id="home_number" placeholder="Home Phone">
-                                    </div>
-                                    <div class="form-group col-md-3">
-                                        <label>Place Of Birth</label>
-                                        <input type="text" value="" class="form-control" name="place_of_birth" id="place_of_birth" placeholder="Place Of Birth">
-                                    </div>
-                                </div>
-                                <div class="row">
-                                    <div class="form-group col-md-4">
-                                        <label>Form-B No</label>
-                                        <input type="text" value="" class="form-control" name="formBNo" id="formBNo" placeholder="Form-B No">
-                                    </div>
-                                    <div class="form-group col-md-4">
-                                        <label>Locality</label>
-                                        <select name="Locality" id="locality" class="form-control">
-                                            <option value="">Select Locality</option>
-                                            <?php
-                                            $loc = db_query("SELECT locality_id, locality_name FROM localities WHERE status=1");
-                                            while ($l = $loc->fetch_assoc()) {
-                                                echo '<option value="' . $l['locality_id'] . '">' . e($l['locality_name']) . '</option>';
-                                            }
-                                            ?>
-                                        </select>
-                                    </div>
-                                    <div class="form-group col-md-4">
-                                        <label>Guardian Name</label>
-                                        <input type="text" value="" class="form-control" name="gname" id="gardian_name" placeholder="Guardian Name">
                                     </div>
                                 </div>
                             </div>
@@ -326,13 +497,19 @@ include __DIR__ . '/includes/header.php';
                         <div class="wizard-pane" id="pane-documents">
                             <div class="pane-wrap">
                                 <div class="pane-title"><i class="fa fa-file-alt"></i> Documents</div>
-                                <div class="form-group col-md-6">
-                                    <label>Document (B-Form / CNIC / Photo)</label>
-                                    <input type="file" id="docFile_0" name="doc_files[]" accept=".jpg,.jpeg,.png,.pdf" class="form-control">
-                                </div>
-                                <div class="form-group col-md-6">
-                                    <label>Previous School Certificate</label>
-                                    <input type="file" id="docFile_1" name="doc_files[]" accept=".jpg,.jpeg,.png,.pdf" class="form-control">
+                                <div class="row">
+                                    <div class="form-group col-md-6">
+                                        <label>B-Form / CNIC / Photo</label>
+                                        <input type="file" id="docFile_0" name="doc_files[]" accept=".jpg,.jpeg,.png,.pdf" class="form-control">
+                                    </div>
+                                    <div class="form-group col-md-6">
+                                        <label>Previous School Certificate</label>
+                                        <input type="file" id="docFile_1" name="doc_files[]" accept=".jpg,.jpeg,.png,.pdf" class="form-control">
+                                    </div>
+                                    <div class="form-group col-md-6">
+                                        <label>Fee Challan / DMC</label>
+                                        <input type="file" id="docFile_2" name="doc_files[]" accept=".jpg,.jpeg,.png,.pdf" class="form-control">
+                                    </div>
                                 </div>
                             </div>
                         </div>

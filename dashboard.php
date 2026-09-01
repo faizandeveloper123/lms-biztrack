@@ -257,7 +257,9 @@ include __DIR__ . '/includes/header.php';
         .kpi-value { font-size: 20px; }
         .att-stats { grid-template-columns: 1fr 1fr; gap: 6px; }
     }
-</style>
+.kpi-value .toggle-money-eye { font-size: 13px; color: #9CA3AF; cursor: pointer; margin-left: 8px; vertical-align: middle; }
+        .kpi-value .toggle-money-eye:hover { color: #377DFF; }
+    </style>
 
 <div class="main-content">
     <div class="container-fluid">
@@ -276,7 +278,7 @@ include __DIR__ . '/includes/header.php';
                         <div class="kpi-icon" style="background:#E9F2FF; color:#377DFF;"><i class="fa fa-wallet"></i></div>
                         <div class="kpi-label">Fee Received</div>
                     </div>
-                    <div class="kpi-value money-value" data-full="<?php echo e(number_format($feeReceived)); ?>"><?php echo e(get_setting('currency_symbol', 'Rs.')) . number_format($feeReceived); ?></div>
+                    <div class="kpi-value"><span class="money-value" data-full="<?php echo e(number_format($feeReceived)); ?>" data-hidden="0"><?php echo e(get_setting('currency_symbol', 'Rs.') . number_format($feeReceived)); ?></span><i class="fa fa-eye toggle-money-eye" title="Show/Hide Amount"></i></div>
                     <div class="kpi-change flat">Today</div>
                     <div class="kpi-spark">
                         <svg width="100%" height="30" viewBox="0 0 120 30" preserveAspectRatio="none">
@@ -292,7 +294,7 @@ include __DIR__ . '/includes/header.php';
                         <div class="kpi-icon" style="background:#D7F5E7; color:#16A34A;"><i class="fa fa-file-invoice-dollar"></i></div>
                         <div class="kpi-label">Fee Receivable</div>
                     </div>
-                    <div class="kpi-value money-value" data-full="<?php echo e(number_format($feeReceivable)); ?>"><?php echo e(get_setting('currency_symbol', 'Rs.')) . number_format($feeReceivable); ?></div>
+                    <div class="kpi-value"><span class="money-value" data-full="<?php echo e(number_format($feeReceivable)); ?>" data-hidden="0"><?php echo e(get_setting('currency_symbol', 'Rs.') . number_format($feeReceivable)); ?></span><i class="fa fa-eye toggle-money-eye" title="Show/Hide Amount"></i></div>
                     <div class="kpi-change flat">Outstanding balance</div>
                     <div class="kpi-spark">
                         <svg width="100%" height="30" viewBox="0 0 120 30" preserveAspectRatio="none">
@@ -308,7 +310,7 @@ include __DIR__ . '/includes/header.php';
                         <div class="kpi-icon" style="background:#EADAFF; color:#9747FF;"><i class="fa fa-coins"></i></div>
                         <div class="kpi-label">Today's Collection</div>
                     </div>
-                    <div class="kpi-value money-value" data-full="<?php echo e(number_format($feeReceived)); ?>"><?php echo e(get_setting('currency_symbol', 'Rs.')) . number_format($feeReceived); ?></div>
+                    <div class="kpi-value"><span class="money-value" data-full="<?php echo e(number_format($feeReceived)); ?>" data-hidden="0"><?php echo e(get_setting('currency_symbol', 'Rs.') . number_format($feeReceived)); ?></span><i class="fa fa-eye toggle-money-eye" title="Show/Hide Amount"></i></div>
                     <div class="kpi-change flat">Today</div>
                     <div class="kpi-spark">
                         <svg width="100%" height="30" viewBox="0 0 120 30" preserveAspectRatio="none">
@@ -324,7 +326,7 @@ include __DIR__ . '/includes/header.php';
                         <div class="kpi-icon" style="background:#FFE5D1; color:#FF7C1B;"><i class="fa fa-receipt"></i></div>
                         <div class="kpi-label">Monthly Expenses</div>
                     </div>
-                    <div class="kpi-value money-value" data-full="<?php echo e(number_format($monthlyExpenses)); ?>"><?php echo e(get_setting('currency_symbol', 'Rs.')) . number_format($monthlyExpenses); ?></div>
+                    <div class="kpi-value"><span class="money-value" data-full="<?php echo e(number_format($monthlyExpenses)); ?>" data-hidden="0"><?php echo e(get_setting('currency_symbol', 'Rs.') . number_format($monthlyExpenses)); ?></span><i class="fa fa-eye toggle-money-eye" title="Show/Hide Amount"></i></div>
                     <div class="kpi-change flat">This month</div>
                     <div class="kpi-spark">
                         <svg width="100%" height="30" viewBox="0 0 120 30" preserveAspectRatio="none">
@@ -623,21 +625,40 @@ if (flip) {
 var moneyEls = document.querySelectorAll('.money-value');
 var MASK = '••••••';
 var moneyHidden = localStorage.getItem('hid_money') === '1';
+
+function maskMoney(el, hidden) {
+    if (hidden) { el.textContent = MASK; el.setAttribute('data-hidden','1'); }
+    else { el.textContent = el.getAttribute('data-full'); el.setAttribute('data-hidden','0'); }
+    var icon = el.nextElementSibling;
+    if (icon && icon.classList.contains('toggle-money-eye')) {
+        icon.className = 'fa fa-' + (hidden ? 'eye' : 'eye-slash') + ' toggle-money-eye';
+    }
+}
 function applyMoneyMask(hidden) {
-    moneyEls.forEach(function(el) {
-        el.textContent = hidden ? MASK : el.dataset.full;
-    });
+    moneyEls.forEach(function(el){ maskMoney(el, hidden); });
     var icon = document.getElementById('moneyToggleIcon');
-    var lbl = document.getElementById('moneyToggleLbl');
+    var lbl  = document.getElementById('moneyToggleLbl');
     if (icon) { icon.className = hidden ? 'fa fa-eye-slash' : 'fa fa-eye'; }
-    if (lbl) { lbl.textContent = hidden ? 'Show Values' : 'Hide Values'; }
+    if (lbl)  { lbl.textContent = hidden ? 'Show Values' : 'Hide Values'; }
     localStorage.setItem('hid_money', hidden ? '1' : '0');
 }
-function toggleMoneyVisibility() {
-    moneyHidden = !moneyHidden;
-    applyMoneyMask(moneyHidden);
-}
+function toggleMoneyVisibility() { moneyHidden = !moneyHidden; applyMoneyMask(moneyHidden); }
 applyMoneyMask(moneyHidden);
+
+document.addEventListener('click', function(e) {
+    var icon = e.target.closest ? e.target.closest('.toggle-money-eye') : null;
+    if (!icon) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var el = icon.previousElementSibling;
+    if (!el || !el.classList.contains('money-value')) return;
+    var hidden = el.getAttribute('data-hidden') !== '0';
+    maskMoney(el, !hidden);
+    var allHidden = true;
+    document.querySelectorAll('.money-value').forEach(function(e){ if (e.getAttribute('data-hidden') === '0') allHidden = false; });
+    moneyHidden = allHidden;
+    applyMoneyMask(moneyHidden);
+});
 </script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>
