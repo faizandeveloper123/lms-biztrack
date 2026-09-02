@@ -337,8 +337,8 @@ include __DIR__ . '/includes/header.php';
 .field-with-add select.form-control { padding-right: 84px; }
 
 /* Section titles */
-.wizard-section-title { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; color: #111827; margin: 14px 0; }
-.wizard-section-title:before { content: ''; width: 4px; height: 18px; border-radius: 4px; background: #9B59D0; }
+.wizard-section-title { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; color: #111827; margin: 14px 0; border-left: 4px solid #9B59D0; padding-left: 10px; line-height: 1.3; }
+.wizard-section-title:before { content: none; }
 
 /* Photo box */
 .photo-box { border: 1px solid #FFD9B3; border-radius: 8px; background: linear-gradient(180deg, #FFF9F4, #ffffff); box-shadow: 0 2px 8px rgba(255,124,27,0.08); min-height: 220px; padding: 12px; }
@@ -895,20 +895,17 @@ include __DIR__ . '/includes/header.php';
                     <form id="feePlanForm" action="add_student.php?step=fee&student_id=<?php echo (int) $stid; ?>" method="post">
                         <input type="hidden" name="save_fee_plan" value="1">
                         <input type="hidden" name="student_id" value="<?php echo (int) $stid; ?>">
-                        <div style="background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:20px;">
-                            <div class="wizard-section-title"><span>Fee Plan</span></div>
-                            <p style="font-size:13px; color:#64748B; margin:6px 0 16px;">
-                                Set the monthly fee heads and amounts for this student. Adjust as needed, then click <strong>Save Fee Plan</strong> to continue.
-                            </p>
+                        <div style="background:#fff; border:1px solid #E6E9ED; border-radius:14px; padding:22px 24px;">
+                            <div class="wizard-section-title" style="border-left-color:#FF7A1B;"><span>Fee Plan <small style="font-size:12px; color:gray;">(configure the monthly fee heads for this student)</small></span></div>
                             <?php if ($numHeads > 0): ?>
-                                <div class="table-responsive">
+                                <div class="table-responsive" style="margin-top:14px;">
                                     <table class="table" style="margin:0; min-width:480px;">
                                         <thead>
                                             <tr>
-                                                <th style="font-size:12px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">#</th>
-                                                <th style="font-size:12px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">Fee Head</th>
-                                                <th style="font-size:12px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">Amount</th>
-                                                <th style="font-size:12px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">Discount</th>
+                                                <th style="font-size:11px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">#</th>
+                                                <th style="font-size:11px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">Fee Head</th>
+                                                <th style="font-size:11px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">Amount</th>
+                                                <th style="font-size:11px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">Discount</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -946,7 +943,7 @@ include __DIR__ . '/includes/header.php';
                             <?php endif; ?>
                         </div>
 
-                        <div class="wizard-actions-bar" style="margin-top:14px;">
+                        <div class="wizard-actions-bar">
                             <div class="mandatory-note">Adjust the fee heads as required</div>
                             <div class="wizard-actions-buttons">
                                 <a href="<?php echo BASE_URL; ?>manage_students.php" class="wizard-btn" id="btnCancelFee">Skip</a>
@@ -971,21 +968,24 @@ include __DIR__ . '/includes/header.php';
                         $doneCount = $c2 ? (int) $c2->fetch_assoc()['c'] : 0;
                     }
                     ?>
-                    <div style="background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:40px 20px; text-align:center;">
-                        <i class="fa fa-check-circle" style="font-size:54px; color:#25A56A;"></i>
-                        <h3 style="font-size:20px; font-weight:800; color:#111827; margin:14px 0 6px;">Student Added Successfully</h3>
-                        <?php if ($stu): ?>
-                            <p style="font-size:14px; color:#5A6B7B;">
-                                <strong><?php echo e($stu['first_name'] . ' ' . $stu['last_name']); ?></strong>
-                                has been added with GR No <span style="background:#FFF3E6; color:#FF7A1B; font-weight:700; padding:3px 10px; border-radius:6px;"><?php echo e($stu['gr_no']); ?></span>
+                    <div style="background:#fff; border:1px solid #E6E9ED; border-radius:14px; padding:22px 24px;">
+                        <div class="wizard-section-title" style="border-left-color:#25A56A;"><span>Finish</span></div>
+                        <div style="padding:24px 20px 10px; text-align:center;">
+                            <i class="fa fa-check-circle" style="font-size:54px; color:#25A56A;"></i>
+                            <h3 style="font-size:20px; font-weight:800; color:#111827; margin:14px 0 6px;">Student Added Successfully</h3>
+                            <?php if ($stu): ?>
+                                <p style="font-size:14px; color:#5A6B7B;">
+                                    <strong><?php echo e($stu['first_name'] . ' ' . $stu['last_name']); ?></strong>
+                                    has been added with GR No <span style="background:#FFF3E6; color:#FF7A1B; font-weight:700; padding:3px 10px; border-radius:6px;"><?php echo e($stu['gr_no']); ?></span>
+                                </p>
+                            <?php endif; ?>
+                            <p style="font-size:13px; color:#8A99A8; margin:6px 0 20px;">
+                                <?php echo $doneCount > 0 ? 'Fee plan saved with ' . $doneCount . ' fee head(s).' : 'No fee plan was saved for this student.'; ?>
                             </p>
-                        <?php endif; ?>
-                        <p style="font-size:13px; color:#8A99A8; margin:6px 0 20px;">
-                            <?php echo $doneCount > 0 ? 'Fee plan saved with ' . $doneCount . ' fee head(s).' : 'No fee plan was saved for this student.'; ?>
-                        </p>
-                        <div style="display:inline-flex; gap:10px; flex-wrap:wrap; justify-content:center;">
-                            <a href="<?php echo BASE_URL; ?>add_student.php" class="btn btn-primary"><i class="fa fa-plus"></i> Add Another Student</a>
-                            <a href="<?php echo BASE_URL; ?>manage_students.php" class="btn btn-default"><i class="fa fa-list"></i> Manage Students</a>
+                            <div style="display:inline-flex; gap:10px; flex-wrap:wrap; justify-content:center;">
+                                <a href="<?php echo BASE_URL; ?>add_student.php" class="btn btn-primary"><i class="fa fa-plus"></i> Add Another Student</a>
+                                <a href="<?php echo BASE_URL; ?>manage_students.php" class="btn btn-default"><i class="fa fa-list"></i> Manage Students</a>
+                            </div>
                         </div>
                     </div>
 
