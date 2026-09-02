@@ -307,13 +307,17 @@ include __DIR__ . '/includes/header.php';
 /* Photo box */
 .photo-box { border: 1px solid #FFD9B3; border-radius: 8px; background: linear-gradient(180deg, #FFF9F4, #ffffff); box-shadow: 0 2px 8px rgba(255,124,27,0.08); min-height: 220px; padding: 12px; }
 .photo-stage { position: relative; height: 210px; overflow: hidden; border: 3px solid #FF7A1B; border-radius: 12px; background: #fff; box-shadow: inset 0 0 0 3px #FFF3E6, 0 0 0 5px #fff inset; }
-.photo-stage .photo-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #CBD5E1; background: linear-gradient(180deg,#FFFBF5,#fff); }
-.photo-stage .photo-placeholder i { font-size: 44px; }
+.photo-stage .photo-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: #CBD5E1; background: linear-gradient(180deg,#FFFBF5,#fff); overflow: hidden; }
+.photo-stage .photo-placeholder svg.mannequin { width: 62%; max-width: 120px; height: auto; color: #DCE6EF; opacity: .95; }
 .photo-stage .photo-placeholder small { font-size: 11px; color: #F59E0B; font-weight: 700; }
+.photo-stage .photo-placeholder em { font-style: normal; font-size: 10px; color: #B0B9C3; letter-spacing: .3px; }
 .photo-stage img { position: relative; max-width: none; }
 #image { width: 100%; height: 100%; object-fit: cover; transform-origin: center center; }
 .photo-stage img#image { position: absolute; inset: 0; cursor: grab; }
 .photo-stage img#image.dragging { cursor: grabbing; }
+.photo-stage .photo-stage-hint { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.45); color: #fff; font-size: 10.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; pointer-events: none; text-align: center; }
+.photo-stage.has-photo .photo-stage-hint { display: block; }
+.photo-stage .photo-stage-hint { display: none; }
 .upload-btn { display: inline-flex; align-items: center; gap: 7px; background: linear-gradient(90deg,#FF7A1B,#ff9838); color: #fff; border: none; border-radius: 8px; padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 6px rgba(255,122,27,.3); transition: all .2s; width: 100%; justify-content: center; }
 .upload-btn:hover { background: linear-gradient(90deg,#e96a0f,#ff8a26); box-shadow: 0 3px 10px rgba(255,122,27,.4); }
 .upload-btn i { font-size: 15px; }
@@ -493,11 +497,18 @@ include __DIR__ . '/includes/header.php';
                                 <!-- Photo Upload Box -->
                                 <div class="col-md-4">
                                     <div class="photo-box">
-                                        <div class="photo-stage">
-                                            <div class="photo-placeholder" id="photoPlaceholder"><i class="fa fa-user"></i><small>DP Preview</small></div>
-                                            <img id="image" src="" alt="Uploaded" style="display:none;">
-                                            <img id="sample-image" src="<?php echo BASE_URL; ?>assets/img/logo.jpg" alt="Sample" style="display:none; width:100%; height:100%; object-fit:cover;">
-                                        </div>
+                                            <div class="photo-stage" id="photoStage">
+                                                <div class="photo-placeholder" id="photoPlaceholder">
+                                                    <svg class="mannequin" viewBox="0 0 120 150" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                                        <circle cx="60" cy="42" r="24" fill="currentColor"/>
+                                                        <path d="M60 70C34 70 20 88 20 116c0 12 9 22 21 22h38c12 0 21-10 21-22 0-28-14-46-40-46Z" fill="currentColor"/>
+                                                    </svg>
+                                                    <small>DP Preview</small>
+                                                    <em>Drag photo to position</em>
+                                                </div>
+                                                <img id="image" src="" alt="Uploaded" style="display:none;">
+                                                <span class="photo-stage-hint"><i class="fa fa-arrows"></i> Drag to position</span>
+                                            </div>
                                         <div class="photo-controls row">
                                             <div class="col-md-6">
                                                 <label style="font-size:11px;">Upload Picture</label>
@@ -1037,6 +1048,7 @@ jQuery(document).ready(function () {
     var image       = document.getElementById('image');
     var sampleImage = document.getElementById('sample-image');
     var placeholder = document.getElementById('photoPlaceholder');
+    var stage       = document.getElementById('photoStage');
     var zoom        = document.getElementById('zoom-slider');
     var rotate      = document.getElementById('rotate-slider');
     var capturedInp = document.getElementById('captured_image');
@@ -1052,7 +1064,8 @@ jQuery(document).ready(function () {
 
     function showImage(src) {
         if (placeholder) placeholder.style.display = 'none';
-        sampleImage.style.display = 'none';
+        if (sampleImage) sampleImage.style.display = 'none';
+        if (stage) stage.classList.add('has-photo');
         image.style.display = 'block';
         image.src = src;
         image.style.left = '0px';
@@ -1103,74 +1116,18 @@ jQuery(document).ready(function () {
         });
     }
 
-    // Form submit interceptor: bake zoom/rotate/drag into the saved image via canvas
+    // No-crop photo submit: the original uploaded file is saved as-is.
+    // Drag/zoom/rotate are visual adjustments within the frame only and are
+    // not baked into the saved image (matches the user's "no crop" requirement).
     var isProcessing = false;
     var form = document.getElementById('studentForm');
     if (form) {
-        form.addEventListener('submit', function (e) {
-            if (isProcessing) return true;
-            if (image.style.display !== 'block') { return true; }
-            var hasNewFile = fileInput && fileInput.files && fileInput.files[0];
-            var z = zoom ? parseFloat(zoom.value) : 1;
-            var r = rotate ? parseInt(rotate.value, 10) : 0;
-            var l = parseInt(image.style.left, 10) || 0;
-            var t = parseInt(image.style.top, 10) || 0;
-            var hasTransform = z !== 1 || r !== 0 || l !== 0 || t !== 0;
-            if (!hasNewFile && !hasTransform) return true;
-            if (!hasNewFile) {
-                // Webcam capture path (captured_image) already carries final pixels; no transform bake
-                return true;
-            }
-            e.preventDefault();
-            processImageTransformation();
+        form.addEventListener('submit', function () {
+            // Webcam capture (captured_image) already carries final pixels.
+            // File uploads keep the original photo untouched (no crop).
+            return true;
         });
-
-        function processImageTransformation() {
-            var c = document.getElementById('imageCanvas');
-            if (!c) return;
-            if (!image.complete || !image.naturalWidth) {
-                isProcessing = false;
-                form.submit();
-                return;
-            }
-            var z = zoom ? (parseFloat(zoom.value) || 1) : 1;
-            var r = rotate ? (parseInt(rotate.value, 10) || 0) : 0;
-            var imgLeft = parseInt(image.style.left, 10) || 0;
-            var imgTop = parseInt(image.style.top, 10) || 0;
-            var cw = 125, ch = 140, scale = 2;
-            c.width = cw * scale; c.height = ch * scale;
-            var ctx = c.getContext('2d');
-            ctx.scale(scale, scale);
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, cw, ch);
-            ctx.save();
-            ctx.translate(cw / 2, ch / 2);
-            if (r !== 0) ctx.rotate((r * Math.PI) / 180);
-            var iar = image.naturalWidth / image.naturalHeight;
-            var car = cw / ch;
-            var bw, bh;
-            if (iar > car) { bw = cw; bh = cw / iar; } else { bh = ch; bw = ch * iar; }
-            var dw = bw * z, dh = bh * z;
-            ctx.drawImage(image, -dw / 2 + imgLeft, -dh / 2 + imgTop, dw, dh);
-            ctx.restore();
-            c.toBlob(function (blob) {
-                if (!blob) { isProcessing = false; form.submit(); return; }
-                var tf = new File([blob], 'transformed_student_image.jpg', { type: 'image/jpeg', lastModified: Date.now() });
-                try {
-                    var dt = new DataTransfer();
-                    dt.items.add(tf);
-                    fileInput.files = dt.files;
-                    form.submit();
-                } catch (err) {
-                    isProcessing = false;
-                    form.submit();
-                }
-            }, 'image/jpeg', 0.98);
-        }
     }
-
     var video = document.getElementById('cameraVideo');
     var canvas = document.getElementById('cameraCanvas');
     var ctx = canvas ? canvas.getContext('2d') : null;
