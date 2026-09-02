@@ -7,7 +7,7 @@
 <script>
 (function(){
     var collapsed = localStorage.getItem('sb_collapsed');
-    if (collapsed === null) { document.body.className = 'sidebar-collapsed'; localStorage.setItem('sb_collapsed', '1'); }
+    if (collapsed === null) { document.body.className = 'sidebar-expanded'; localStorage.setItem('sb_collapsed', '0'); }
     else if (collapsed === '1') { document.body.className = 'sidebar-collapsed'; }
     else { document.body.className = 'sidebar-expanded'; }
 })();

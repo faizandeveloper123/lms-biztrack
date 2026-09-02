@@ -55,14 +55,14 @@
 .nav-bar::-webkit-scrollbar { display: none; }
 .nav-bar { -ms-overflow-style: none; scrollbar-width: none; }
 </style></head>
-<body class="sidebar-collapsed">
+<body class="sidebar-expanded">
     <style>
   :root {
     --sb-collapsed: 90px;
-    --sb-expanded: 240px;
-    --sb-bg: #2B2B36;
-    --sb-fly: #3A3A4D;
-    --text: #fff;
+    --sb-expanded: 244px;
+    --sb-bg: #2A3F54;
+    --sb-fly: #1f3548;
+    --text: #ECEFF1;
   }
   .left_col {
     position: fixed !important;
@@ -102,7 +102,7 @@
   body.sidebar-collapsed #sidebar-menu .side-menu>li>a i { font-size: 18px; line-height: 1; }
   body.sidebar-collapsed #sidebar-menu .side-menu>li>a .label { display: block; font-size: 10px; margin-top: 2px; line-height: 1.05; max-width: 64px; text-align: center; white-space: normal; }
   body.sidebar-collapsed #sidebar-menu .side-menu>li>a .chev { display: none; }
-  .child_menu { display: none; list-style: none; margin: 0; padding: 6px 0; background: var(--sb-fly); box-shadow: 0 8px 24px rgba(0, 0, 0, .25); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.05); }
+  .child_menu { display: none; list-style: none; margin: 0; padding: 6px 0; background: var(--sb-fly); box-shadow: 0 8px 24px rgba(0, 0, 0, .25); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.06); }
   .child_menu li a { display: block; padding: 10px 16px; font-size: 13px; color: #fff; text-decoration: none; font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif; font-weight: 400; letter-spacing: 0.1px; transition: all 0.2s ease; border-radius: 6px; margin: 2px 6px; }
   .child_menu li a:hover { background: rgba(255, 255, 255, 0.08); transform: translateX(3px); color: #fff; }
   body.sidebar-expanded #sidebar-menu .side-menu>li.active>.child_menu { display: block; position: static; margin: 2px 8px 8px 44px; border-radius: 8px; animation: slideIn 0.2s ease; }
