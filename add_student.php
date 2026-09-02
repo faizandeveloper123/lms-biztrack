@@ -531,11 +531,11 @@ include __DIR__ . '/includes/header.php';
                                         </div>
                                         <div class="form-group col-md-3">
                                             <label>Date Of Birth</label>
-                                            <input type="text" class="form-control datepicker" name="dob" id="dob" placeholder="dd/mm/yyyy" value="<?php echo date('d/M/Y'); ?>">
+                                            <input type="text" class="form-control datepicker" name="dob" id="dob" placeholder="dd/mm/yyyy" value="">
                                         </div>
                                         <div class="form-group col-md-3">
                                             <label>Date Of Admission</label>
-                                            <input type="text" class="form-control datepicker" name="date_of_adms" id="date_of_adms" placeholder="dd/mm/yyyy" value="<?php echo date('d/M/Y'); ?>">
+                                            <input type="text" class="form-control datepicker" name="date_of_adms" id="date_of_adms" placeholder="dd/mm/yyyy" value="">
                                         </div>
                                     </div>
                                 </div>
@@ -546,11 +546,14 @@ include __DIR__ . '/includes/header.php';
                                             <div class="photo-stage" id="photoStage">
                                                 <div class="photo-placeholder" id="photoPlaceholder">
                                                     <svg class="mannequin" viewBox="0 0 120 150" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                                                        <circle cx="60" cy="42" r="24" fill="currentColor"/>
-                                                        <path d="M60 70C34 70 20 88 20 116c0 12 9 22 21 22h38c12 0 21-10 21-22 0-28-14-46-40-46Z" fill="currentColor"/>
+                                                        <circle cx="60" cy="42" r="24" stroke="currentColor" stroke-width="2.5" stroke-dasharray="5 6" fill="none"/>
+                                                        <path d="M60 70C34 70 20 88 20 116c0 12 9 22 21 22h38c12 0 21-10 21-22 0-28-14-46-40-46Z" stroke="currentColor" stroke-width="2.5" stroke-dasharray="5 6" fill="none"/>
+                                                        <circle cx="51" cy="39" r="1.7" fill="currentColor"/>
+                                                        <circle cx="69" cy="39" r="1.7" fill="currentColor"/>
+                                                        <path d="M53 49 Q60 53 67 49" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
                                                     </svg>
-                                                    <small>DP Preview</small>
-                                                    <em>Drag photo to position</em>
+                                                    <small>Photo</small>
+                                                    <em>Auto adjusts to passport size</em>
                                                 </div>
                                                 <img id="image" src="" alt="Uploaded" style="display:none;">
                                                 <span class="photo-stage-hint"><i class="fa fa-arrows"></i> Drag to position</span>
@@ -573,7 +576,8 @@ include __DIR__ . '/includes/header.php';
                                                     <label style="font-size:11px;">Rotate</label>
                                                     <input type="range" id="rotate-slider" min="-180" max="180" step="1" value="0" style="width:100%;">
                                                 </div>
-                                                <button type="button" class="btn btn-warning btn-sm" id="btnCapturePhoto" style="width:100%; margin-top:2px;"><i class="fa fa-camera"></i> Capture Photo</button>
+                                                <button type="button" class="btn btn-danger btn-sm" id="btnRemovePhoto" style="width:100%; margin-top:2px; display:none;"><i class="fa fa-trash"></i> Remove Photo</button>
+                                                <button type="button" class="btn btn-warning btn-sm" id="btnCapturePhoto" style="width:100%; margin-top:4px;"><i class="fa fa-camera"></i> Capture Photo</button>
                                             </div>
                                         </div>
                                         <canvas id="imageCanvas" style="display:none;"></canvas>
@@ -1002,8 +1006,9 @@ include __DIR__ . '/includes/header.php';
             </div>
             <div class="modal-body" style="text-align:center;">
                 <div style="position:relative; max-width:330px; margin:0 auto;">
-                    <video id="cameraVideo" autoplay playsinline style="width:100%; border-radius:12px; background:#111;"></video>
-                    <div style="position:absolute; top:0; left:0; right:0; bottom:0; margin:auto; width:150px; height:150px; border:3px solid #FF7A1B; border-radius:50%; pointer-events:none;"></div>
+                    <video id="cameraVideo" autoplay playsinline style="width:100%; border-radius:12px; background:#111; object-fit:cover;"></video>
+                    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:58%; height:82%; border:3px dashed #FF7A1B; border-radius:10px; background:rgba(255,255,255,0.06); box-shadow:0 0 0 9999px rgba(0,0,0,0.35); pointer-events:none;"></div>
+                    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-88%); width:58%; font-size:11px; color:#fff; font-weight:600; text-align:center; pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.6);">Align face inside passport frame</div>
                 </div>
                 <canvas id="cameraCanvas" style="display:none; width:100%; border-radius:12px;"></canvas>
                 <div id="cameraMessage" style="display:none; margin-top:10px; color:#dc3545; font-weight:600;"></div>
@@ -1237,18 +1242,51 @@ jQuery(document).ready(function () {
         if (image.style.display !== 'none') image.style.transform = 'scale(' + z + ') rotate(' + r + 'deg)';
     }
 
+    function autoFitPassport() {
+        if (!stage || !image.naturalWidth || !image.naturalHeight) return;
+        var sw = stage.clientWidth, sh = stage.clientHeight;
+        if (!sw || !sh) return;
+        var iar = image.naturalWidth / image.naturalHeight;
+        // Fit the image fully inside the passport frame (no stretch/crop), preserving aspect ratio
+        var h = sh, w = sh * iar;
+        if (w > sw) { w = sw; h = sw / iar; }
+        image.style.width = w + 'px';
+        image.style.height = h + 'px';
+        image.style.left = Math.round((sw - w) / 2) + 'px';
+        image.style.top = Math.round((sh - h) / 2) + 'px';
+    }
+
     function showImage(src) {
         if (placeholder) placeholder.style.display = 'none';
         if (sampleImage) sampleImage.style.display = 'none';
         if (stage) stage.classList.add('has-photo');
+        if (btnRemove) btnRemove.style.display = 'inline-block';
         image.style.display = 'block';
         image.src = src;
-        image.style.left = '0px';
-        image.style.top = '0px';
-        image.style.width = '100%';
-        image.style.height = '100%';
-        updateTransform();
+        if (image.complete && image.naturalWidth) {
+            autoFitPassport();
+            updateTransform();
+        } else {
+            image.onload = function () { autoFitPassport(); updateTransform(); };
+        }
     }
+
+    function resetPhoto() {
+        capturedInp.value = '';
+        if (zoom) zoom.value = 1;
+        if (rotate) rotate.value = 0;
+        if (placeholder) placeholder.style.display = '';
+        if (stage) stage.classList.remove('has-photo');
+        if (btnRemove) btnRemove.style.display = 'none';
+        image.style.display = 'none';
+        image.removeAttribute('src');
+        var lbl = document.getElementById('fileNameLabel');
+        if (lbl) lbl.textContent = 'No file selected';
+        if (fileInput) { try { fileInput.value = ''; } catch (e) {} }
+    }
+
+    var btnRemove = document.getElementById('btnRemovePhoto');
+    if (btnRemove) btnRemove.addEventListener('click', resetPhoto);
 
     if (fileInput) {
         fileInput.addEventListener('change', function () {
