@@ -531,11 +531,11 @@ include __DIR__ . '/includes/header.php';
                                         </div>
                                         <div class="form-group col-md-3">
                                             <label>Date Of Birth</label>
-                                            <input type="text" class="form-control datepicker" name="dob" id="dob" placeholder="dd/mm/yyyy" value="">
+                                            <input type="date" class="form-control datepicker" name="dob" id="dob" placeholder="dd/mm/yyyy" value="" max="<?php echo date('Y-m-d'); ?>">
                                         </div>
                                         <div class="form-group col-md-3">
                                             <label>Date Of Admission</label>
-                                            <input type="text" class="form-control datepicker" name="date_of_adms" id="date_of_adms" placeholder="dd/mm/yyyy" value="">
+                                            <input type="date" class="form-control datepicker" name="date_of_adms" id="date_of_adms" placeholder="dd/mm/yyyy" value="">
                                         </div>
                                     </div>
                                 </div>
@@ -1139,40 +1139,11 @@ function previewStudentDoc(input, index) {
     }
 }
 
-// Lightweight date picker (dd/MM/yyyy)
+// Native date pickers (calendar opens on click by default)
 (function () {
-    function formatDate(d) {
-        var dd = String(d.getDate()).padStart(2, '0');
-        var mm = String(d.getMonth() + 1).padStart(2, '0');
-        return dd + '/' + mm + '/' + d.getFullYear();
-    }
     document.querySelectorAll('.datepicker').forEach(function (input) {
-        input.setAttribute('readonly', 'readonly');
+        // Native <input type="date"> opens a calendar on click; nothing else needed.
         input.style.cursor = 'pointer';
-        input.addEventListener('click', function () {
-            var d = new Date();
-            if (input.value && input.value.indexOf('/') !== -1) {
-                var p = input.value.split('/');
-                var parsed = new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]));
-                if (!isNaN(parsed.getTime())) d = parsed;
-            }
-            // Use native date input (hidden) for reliable picking
-            var hidden = document.createElement('input');
-            hidden.type = 'date';
-            hidden.value = d.toISOString().substring(0, 10);
-            hidden.style.cssText = 'position:absolute; opacity:0; width:1px; height:1px;';
-            document.body.appendChild(hidden);
-            hidden.focus();
-            hidden.addEventListener('change', function () {
-                if (hidden.value) {
-                    var parts = hidden.value.split('-');
-                    input.value = parts[2] + '/' + parts[1] + '/' + parts[0];
-                }
-                hidden.remove();
-            });
-            hidden.addEventListener('blur', function () { setTimeout(function () { hidden.remove(); }, 200); });
-            setTimeout(function () { hidden.click(); }, 50);
-        });
     });
 })();
 
@@ -1353,36 +1324,67 @@ jQuery(document).ready(function () {
         }
     }
 
+    function showCamMsg(text, isError) {
+        var m = document.getElementById('cameraMessage');
+        if (!m) return;
+        m.textContent = text || '';
+        m.style.display = text ? (isError ? 'block' : 'block') : 'none';
+        if (!isError) m.style.color = '#155724';
+    }
+
+    function openCamera() {
+        // Detach old stream and reset the capture UI
+        stopCamera();
+        var prev = document.getElementById('cameraPreview');
+        if (prev) { prev.src = ''; prev.style.display = 'none'; }
+        var useBtn = document.getElementById('btnUseCapture');
+        if (useBtn) useBtn.style.display = 'none';
+        var capBtn = document.getElementById('btnCapture');
+        if (capBtn) capBtn.disabled = true;
+        // Grab the camera inside the user gesture so the browser shows the permission prompt
+        if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+            showCamMsg('Camera not supported in this browser. Please upload a photo instead.', true);
+            jQuery('#cameraModal').modal('show');
+            return;
+        }
+        showCamMsg('Starting camera…', false);
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } } })
+            .then(function (stream) {
+                video.srcObject = stream;
+                video.play().catch(function () {});
+                showCamMsg('', false);
+                if (capBtn) capBtn.disabled = false;
+                jQuery('#cameraModal').modal('show');
+            })
+            .catch(function (err) {
+                var denied = err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError' || err.name === 'SecurityError');
+                showCamMsg(denied
+                    ? 'Camera permission was denied. Allow camera access or upload a photo instead.'
+                    : 'Camera not available. Please upload a photo instead.', true);
+                if (capBtn) capBtn.disabled = true;
+                jQuery('#cameraModal').modal('show');
+            });
+    }
+
+    var captureTrigger = document.getElementById('btnCapturePhoto');
+    if (captureTrigger && typeof jQuery !== 'undefined') {
+        captureTrigger.addEventListener('click', openCamera);
+    }
+
     if (camModal && video) {
-        camModal.addEventListener('shown.bs.modal', function () {
-            var prev = document.getElementById('cameraPreview');
-            if (prev) { prev.src = ''; prev.style.display = 'none'; }
-            var useBtn = document.getElementById('btnUseCapture');
-            if (useBtn) useBtn.style.display = 'none';
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                navigator.mediaDevices.getUserMedia({ video: true })
-                    .then(function (stream) {
-                        video.srcObject = stream;
-                        video.play();
-                        if (document.getElementById('cameraMessage')) document.getElementById('cameraMessage').style.display = 'none';
-                    })
-                    .catch(function () {
-                        if (document.getElementById('cameraMessage')) {
-                            var m = document.getElementById('cameraMessage');
-                            m.textContent = 'Camera not available. Please upload a photo instead.';
-                            m.style.display = 'block';
-                        }
-                    });
-            }
-        });
         camModal.addEventListener('hidden.bs.modal', stopCamera);
     }
 
     var btnCapture = document.getElementById('btnCapture');
     if (btnCapture && canvas && ctx && video) {
         btnCapture.addEventListener('click', function () {
-            canvas.width = video.videoWidth || 320;
-            canvas.height = video.videoHeight || 240;
+            // Only capture when the video actually has frames (never set a blank image)
+            if (!video.videoWidth || !video.videoHeight) {
+                showCamMsg('Camera is still starting. Try again in a moment.', true);
+                return;
+            }
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             var preview = document.getElementById('cameraPreview');
             if (preview) {
@@ -1399,11 +1401,13 @@ jQuery(document).ready(function () {
         btnUse.addEventListener('click', function () {
             var preview = document.getElementById('cameraPreview');
             var src = preview ? preview.src : null;
-            if (src) {
+            if (src && src.length > 100) {   // ignore blank/black captures
                 capturedInp.value = src;   // saved via POST hidden input
                 showImage(src);
                 stopCamera();
                 if (typeof jQuery !== 'undefined') jQuery(camModal).modal('hide');
+            } else {
+                showCamMsg('Capture a photo first.', true);
             }
         });
     }
