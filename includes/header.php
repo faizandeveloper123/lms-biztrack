@@ -152,7 +152,7 @@
         </ul>
       </li>
       <li class="has-children">
-        <a href="javascript:void(0)"><i class="fa fa-dashboard"></i><span class="label" style="font-weight: normal !important;">Dashboard</span><span class="fa fa-chevron-right chev"></span></a>
+        <a href="javascript:void(0)"><i class="fa fa-tachometer-alt"></i><span class="label" style="font-weight: normal !important;">Dashboard</span><span class="fa fa-chevron-right chev"></span></a>
         <ul class="child_menu" style="display: none;">
           <li><a href="<?php echo BASE_URL; ?>dashboard.php">Executive Dashboard</a></li>
           <li><a href="<?php echo BASE_URL; ?>basic_dashboard.php">Staff Dashboard</a></li>
@@ -246,7 +246,7 @@
         </ul>
       </li>
       <li class="has-children">
-        <a href="javascript:void(0)"><i class="fa fa-paypal"></i><span class="label" style="font-weight: normal !important;">PayRoll</span><span class="fa fa-chevron-right chev"></span></a>
+        <a href="javascript:void(0)"><i class="fab fa-paypal"></i><span class="label" style="font-weight: normal !important;">PayRoll</span><span class="fa fa-chevron-right chev"></span></a>
         <ul class="child_menu" style="display: none;">
           <li><a href="<?php echo BASE_URL; ?>creat_payroll.php">Create PayRoll</a></li>
           <li><a href="<?php echo BASE_URL; ?>view_payroll.php">View PayRoll</a></li>
