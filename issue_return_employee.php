@@ -190,7 +190,8 @@ $sql .= " ORDER BY bi.issue_date DESC, bi.issue_id DESC";
 $st = db_prepare($sql);
 if ($dept !== '') { $st->bind_param('s', $dept); }
 $st->execute();
-while ($row = $st->get_result()->fetch_assoc()) { $records[] = $row; }
+$res = $st->get_result();
+while ($row = $res->fetch_assoc()) { $records[] = $row; }
 
 $issuedRecords = [];
 $st = db_prepare("SELECT bi.issue_id, bi.book_id, bi.employee_id, bi.due_date, bi.status, b.title,
@@ -201,7 +202,8 @@ $st = db_prepare("SELECT bi.issue_id, bi.book_id, bi.employee_id, bi.due_date, b
     WHERE bi.employee_id IS NOT NULL AND bi.status='issued'
     ORDER BY bi.issue_date DESC");
 $st->execute();
-while ($row = $st->get_result()->fetch_assoc()) { $issuedRecords[] = $row; }
+$res = $st->get_result();
+while ($row = $res->fetch_assoc()) { $issuedRecords[] = $row; }
 
 include __DIR__ . '/includes/header.php';
 ?>

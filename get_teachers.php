@@ -8,7 +8,7 @@ header('Content-Type: application/json; charset=utf-8');
 $term = isset($_GET['term']) ? trim($_GET['term']) : '';
 $out = [];
 
-$sql = "SELECT e.employee_id AS id, CONCAT(e.first_name, ' ', COALESCE(e.last_name, '')) AS name
+$sql = "SELECT e.emp_id AS id, CONCAT(e.first_name, ' ', COALESCE(e.last_name, '')) AS name
         FROM employees e
         WHERE e.status = 1 AND (e.designation LIKE '%teacher%' OR e.designation LIKE '%instructor%' OR e.designation = '')
           AND CONCAT(e.first_name, ' ', COALESCE(e.last_name, '')) LIKE ?
