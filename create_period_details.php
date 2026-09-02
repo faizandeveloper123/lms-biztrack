@@ -3,163 +3,206 @@ define('HIIFI', true);
 require_once __DIR__ . '/config.php';
 require_login();
 
-$page_title = 'Class Period Details';
+require_once __DIR__ . '/includes/period_schema.php';
+
+$page_title = 'Manage Period';
 
 $message = '';
 $error = '';
 
-$class_id = (int) ($_GET['class_id'] ?? $_POST['class_id'] ?? 0);
-if ($class_id <= 0) { header('Location: ' . BASE_URL . 'class_period_selection.php'); exit; }
-
-$class = db_query("SELECT * FROM classes WHERE class_id=$class_id")->fetch_assoc();
-if (!$class) { header('Location: ' . BASE_URL . 'class_period_selection.php'); exit; }
-
-$classes = [];
-$res = db_query("SELECT class_id, class_name FROM classes WHERE status=1 ORDER BY class_name");
-while ($row = $res->fetch_assoc()) { $classes[] = $row; }
-
-$sections = [];
-$res = db_query("SELECT * FROM sections WHERE class_id=$class_id ORDER BY section_name");
-while ($row = $res->fetch_assoc()) { $sections[] = $row; }
-
-$subjects = [];
-$res = db_query("SELECT * FROM subjects WHERE class_id=$class_id ORDER BY subject_name");
-while ($row = $res->fetch_assoc()) { $subjects[] = $row; }
-
-$teachers = [];
-$res = db_query("SELECT emp_id, first_name, last_name FROM employees WHERE status=1 ORDER BY first_name");
-while ($row = $res->fetch_assoc()) { $teachers[] = $row; }
+$categories = [];
+$res = db_query("SELECT * FROM period_categories ORDER BY name");
+while ($row = $res->fetch_assoc()) { $categories[] = $row; }
 
 $periods = [];
-$res = db_query("SELECT * FROM periods ORDER BY start_time");
+$res = db_query("SELECT p.*, pc.name AS cat_name FROM periods p
+                 LEFT JOIN period_categories pc ON pc.id=p.category_id
+                 ORDER BY p.start_time, p.period_id");
 while ($row = $res->fetch_assoc()) { $periods[] = $row; }
 
-$days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'SaveTimetable') {
-    $day = trim($_POST['day'] ?? '');
-    $period_id = (int) ($_POST['period_id'] ?? 0);
-    $subject_id = (int) ($_POST['subject_id'] ?? 0);
-    $teacher_id = (int) ($_POST['teacher_id'] ?? 0);
-    $section_id = isset($_POST['section_id']) && $_POST['section_id'] !== '' ? (int)$_POST['section_id'] : null;
-    if ($day === '' || $period_id <= 0) {
-        $error = 'Day aur period select karein.';
-    } else {
-        $st2 = db_prepare("INSERT INTO timetable (class_id, section_id, day, period_id, subject_id, teacher_id) VALUES (?, ?, ?, ?, ?, ?)");
-        $st2->bind_param('iisiii', $class_id, $section_id, $day, $period_id, $subject_id, $teacher_id);
-        $st2->execute();
-        $message = "Timetable entry added for $day!";
+    if ($action === 'CreatePeriodDetails') {
+        $period_cat = (int) ($_POST['Periodcat'] ?? 0);
+        $titles = $_POST['title'] ?? [];
+        $starts = $_POST['start'] ?? [];
+        $ends   = $_POST['end'] ?? [];
+        if ($period_cat <= 0) {
+            $error = 'Please select a period category.';
+        } else {
+            $count = 0;
+            $st2 = db_prepare("INSERT INTO periods (period_name, start_time, end_time, category_id) VALUES (?, ?, ?, ?)");
+            foreach ($titles as $i => $title) {
+                $title = trim($title);
+                if ($title === '') continue;
+                $start = trim($starts[$i] ?? '');
+                $end   = trim($ends[$i] ?? '');
+                $start_sql = $start !== '' ? date('H:i', strtotime($start)) : null;
+                $end_sql   = $end !== '' ? date('H:i', strtotime($end)) : null;
+                $st2->bind_param('sssi', $title, $start_sql, $end_sql, $period_cat);
+                $st2->execute();
+                $count++;
+            }
+            $message = "$count period(s) created successfully!";
+        }
+    }
+
+    if ($action === 'EditCreatePeriodDetails') {
+        $pid = (int) ($_POST['period_details_id'] ?? 0);
+        $title = trim($_POST['period_details_title'] ?? '');
+        $start = trim($_POST['period_start'] ?? '');
+        $end   = trim($_POST['period_end'] ?? '');
+        if ($pid <= 0 || $title === '') {
+            $error = 'Period title is required.';
+        } else {
+            $start_sql = $start !== '' ? date('H:i', strtotime($start)) : null;
+            $end_sql   = $end !== '' ? date('H:i', strtotime($end)) : null;
+            $st2 = db_prepare("UPDATE periods SET period_name=?, start_time=?, end_time=? WHERE period_id=?");
+            $st2->bind_param('sssi', $title, $start_sql, $end_sql, $pid);
+            $st2->execute();
+            $message = 'Period updated successfully!';
+        }
+    }
+
+    if ($action === 'DeletePeriodDetails') {
+        $pid = (int) ($_POST['period_id'] ?? 0);
+        if ($pid > 0) {
+            $d = db_prepare("DELETE FROM timetable WHERE period_id=?");
+            $d->bind_param('i', $pid);
+            $d->execute();
+            $st2 = db_prepare("DELETE FROM periods WHERE period_id=?");
+            $st2->bind_param('i', $pid);
+            $st2->execute();
+            $message = 'Period deleted.';
+        }
     }
 }
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'DeleteTimetable') {
-    $tid = (int) ($_POST['timetable_id'] ?? 0);
-    if ($tid > 0) {
-        $st2 = db_prepare("DELETE FROM timetable WHERE timetable_id=?");
-        $st2->bind_param('i', $tid);
-        $st2->execute();
-        $message = 'Timetable entry deleted!';
-    }
-}
-
-// Build timetable grid: day => period_id => entry
-$grid = [];
-$res = db_query("SELECT t.*, s.subject_name, p.period_name, p.start_time, p.end_time, e.first_name teacher_name, sec.section_name
-    FROM timetable t
-    LEFT JOIN subjects s ON t.subject_id=s.subject_id
-    LEFT JOIN periods p ON t.period_id=p.period_id
-    LEFT JOIN employees e ON t.teacher_id=e.emp_id
-    LEFT JOIN sections sec ON t.section_id=sec.section_id
-    WHERE t.class_id=$class_id ORDER BY t.day");
-while ($row = $res->fetch_assoc()) { $grid[$row['day']][$row['period_id']] = $row; }
 
 include __DIR__ . '/includes/header.php';
 ?>
 <style>
-.search-bar-student { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:16px; margin-bottom:16px; }
+.a2-breadcrumb a { color:#6366F1; text-decoration:none; cursor:pointer; }
+.a2-breadcrumb i { color:#9CA3AF; margin:0 6px; }
 </style>
 
 <div class="main-content">
     <div class="container-fluid">
+        <div class="a2-breadcrumb" style="padding:8px 4px; font-size:13px; color:#111827;">
+            <a href="<?php echo BASE_URL; ?>index.php"><i class="fa fa-home"></i> Dashboard</a>
+            <i class="fa fa-angle-double-right"></i> Manage Period
+        </div>
+
         <?php if ($message): ?><div class="alert alert-success"><?php echo e($message); ?></div><?php endif; ?>
         <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 4px;">
-            <h3 style="font-size:18px; font-weight:800; color:#111827; margin:0;"><i class="fa fa-calendar"></i> Class Period Details — <?php echo e($class['class_name']); ?></h3>
-            <a href="<?php echo BASE_URL; ?>view_class_period_selection.php" class="btn btn-primary" style="color:#fff;"><i class="fa fa-eye"></i> View Time Table</a>
-        </div>
-
-        <div class="row">
-            <div class="col-md-4">
-                <form method="post" action="create_period_details.php" style="background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:16px;">
-                    <h4 style="font-size:15px; font-weight:800; margin:0 0 12px;">Add Period Entry</h4>
-                    <input type="hidden" name="action" value="SaveTimetable">
-                    <input type="hidden" name="class_id" value="<?php echo $class_id; ?>">
-                    <div class="form-group">
-                        <label class="required">Day</label>
-                        <select name="day" class="form-control" required>
-                            <option value="">Select Day</option>
-                            <?php foreach ($days as $d): ?><option value="<?php echo $d; ?>"><?php echo $d; ?></option><?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="required">Period</label>
-                        <select name="period_id" class="form-control" required>
-                            <option value="">Select Period</option>
-                            <?php foreach ($periods as $p): ?><option value="<?php echo $p['period_id']; ?>"><?php echo e($p['period_name']) . ' (' . date('h:i A', strtotime($p['start_time'])) . ')'; ?></option><?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Section</label>
-                        <select name="section_id" class="form-control">
-                            <option value="">None</option>
-                            <?php foreach ($sections as $sec): ?><option value="<?php echo $sec['section_id']; ?>"><?php echo e($sec['section_name']); ?></option><?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Subject</label>
-                        <select name="subject_id" class="form-control">
-                            <option value="">None</option>
-                            <?php foreach ($subjects as $su): ?><option value="<?php echo $su['subject_id']; ?>"><?php echo e($su['subject_name']); ?></option><?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Teacher</label>
-                        <select name="teacher_id" class="form-control">
-                            <option value="">None</option>
-                            <?php foreach ($teachers as $t): ?><option value="<?php echo $t['emp_id']; ?>"><?php echo e($t['first_name'] . ' ' . $t['last_name']); ?></option><?php endforeach; ?>
-                        </select>
-                    </div>
-                    <button type="submit" class="btn btn-success" style="width:100%;"><i class="fa fa-plus"></i> Add Entry</button>
-                </form>
-            </div>
-
-            <div class="col-md-8">
-                <div style="overflow-x:auto; background:#fff; border:1px solid #E5E7EB; border-radius:14px;">
-                    <table class="table table-bordered" style="width:100%; background:#fff; margin-bottom:0; font-size:12px;">
-                        <thead><tr><th>Day / Period</th><?php foreach ($periods as $p): ?><th><?php echo e($p['period_name']); ?><br><small style="color:#6B7280; font-weight:400;"><?php echo date('h:i A', strtotime($p['start_time'])); ?></small></th><?php endforeach; ?></tr></thead>
+        <div class="row" style="margin-top:6px;">
+            <div class="col-md-6">
+                <div style="overflow-x:auto; background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:4px;">
+                    <div style="padding:12px 14px; font-weight:800; color:#111827; font-size:15px; border-bottom:1px solid #E5E7EB;"><i class="fa fa-list"></i> Period Definitions</div>
+                    <table class="table table-striped table-bordered" style="width:100%; background:#fff; margin-bottom:0; font-size:12.5px;">
+                        <thead>
+                            <tr>
+                                <th style="width:9%; text-align:center;">S.No</th>
+                                <th>Period</th>
+                                <th>Period Title</th>
+                                <th>Start Time</th>
+                                <th>End Time</th>
+                                <th style="width:14%; text-align:center;">Action</th>
+                            </tr>
+                        </thead>
                         <tbody>
-                            <?php foreach ($days as $d): ?>
+                            <?php if (count($periods) === 0): ?>
+                                <tr><td colspan="6" style="text-align:center; color:#6B7280; padding:30px;">No periods configured yet. Use the form on the right to create them.</td></tr>
+                            <?php endif; ?>
+                            <?php foreach ($periods as $i => $p): ?>
                                 <tr>
-                                    <th style="background:#F9FAFB;"><?php echo $d; ?></th>
-                                    <?php foreach ($periods as $p): $cell = $grid[$d][$p['period_id']] ?? null; ?>
-                                        <td style="color:#6B7280;">
-                                            <?php if ($cell): ?>
-                                                <strong style="color:#111827;"><?php echo e($cell['subject_name'] ?: '-'); ?></strong><br>
-                                                <small><?php echo e($cell['teacher_name'] ?: ''); ?> <?php echo $cell['section_name'] ? '(' . e($cell['section_name']) . ')' : ''; ?></small>
-                                                <form method="post" action="create_period_details.php" style="display:inline;">
-                                                    <input type="hidden" name="action" value="DeleteTimetable">
-                                                    <input type="hidden" name="timetable_id" value="<?php echo $cell['timetable_id']; ?>">
-                                                    <button class="btn btn-danger btn-xs" style="margin-top:3px;"><i class="fa fa-trash"></i></button>
-                                                </form>
-                                            <?php else: ?>—<?php endif; ?>
-                                        </td>
-                                    <?php endforeach; ?>
+                                    <td style="text-align:center;"><?php echo $i + 1; ?></td>
+                                    <td><?php echo e($p['cat_name'] ?? $p['period_name']); ?></td>
+                                    <td><?php echo e($p['period_name']); ?></td>
+                                    <td><?php echo $p['start_time'] ? date('h:i A', strtotime($p['start_time'])) : '-'; ?></td>
+                                    <td><?php echo $p['end_time'] ? date('h:i A', strtotime($p['end_time'])) : '-'; ?></td>
+                                    <td style="text-align:center; white-space:nowrap;">
+                                        <a href="#" data-toggle="modal" data-target="#EditPeriodDetail<?php echo $p['period_id']; ?>" class="btn btn-success" style="padding:2px 8px; font-size:13px;"><i class="fa fa-pencil" aria-hidden="true"></i></a>
+                                        <form method="post" action="create_period_details.php" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this record');">
+                                            <input type="hidden" name="action" value="DeletePeriodDetails">
+                                            <input type="hidden" name="period_id" value="<?php echo $p['period_id']; ?>">
+                                            <button type="submit" class="btn btn-danger" style="padding:2px 8px; font-size:13px;"><i class="fa fa-remove" aria-hidden="true"></i></button>
+                                        </form>
+                                    </td>
                                 </tr>
+
+                                <div id="EditPeriodDetail<?php echo $p['period_id']; ?>" class="modal fade" role="dialog">
+                                    <div class="modal-dialog">
+                                        <div class="modal-content" style="border-radius:14px;">
+                                            <div class="modal-header">
+                                                <button type="button" class="close" data-dismiss="modal">&times;</button>
+                                                <h4 class="modal-title" style="font-weight:800; text-align:center;">Edit (<?php echo e(($p['cat_name'] ?? $p['period_name']) . ' - ' . $p['period_name']); ?>)</h4>
+                                            </div>
+                                            <div class="modal-body">
+                                                <form method="post" action="create_period_details.php">
+                                                    <input type="hidden" name="action" value="EditCreatePeriodDetails">
+                                                    <input type="hidden" name="period_details_id" value="<?php echo $p['period_id']; ?>">
+                                                    <div class="form-group">
+                                                        <label>Period Title</label>
+                                                        <input type="text" name="period_details_title" class="form-control" value="<?php echo e($p['period_name']); ?>" required>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label>Start Time</label>
+                                                        <input type="time" name="period_start" class="form-control" value="<?php echo $p['start_time'] ? date('H:i', strtotime($p['start_time'])) : ''; ?>">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label>End Time</label>
+                                                        <input type="time" name="period_end" class="form-control" value="<?php echo $p['end_time'] ? date('H:i', strtotime($p['end_time'])) : ''; ?>">
+                                                    </div>
+                                                    <div class="modal-footer" style="border-top:none; text-align:center;">
+                                                        <button type="submit" name="submit" class="btn btn-primary">Submit</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
                 </div>
+            </div>
+
+            <div class="col-md-6">
+                <form method="post" action="create_period_details.php" style="background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:16px;">
+                    <input type="hidden" name="action" value="CreatePeriodDetails">
+                    <div class="form-group">
+                        <label class="required">Period Categories</label>
+                        <select name="Periodcat" class="form-control" required>
+                            <option value="">Select</option>
+                            <?php foreach ($categories as $cat): ?>
+                                <option value="<?php echo $cat['id']; ?>"><?php echo e($cat['name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <?php for ($r = 0; $r < 6; $r++): ?>
+                        <div class="row" style="padding:0.5%; margin:0.5%;">
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <input type="text" class="form-control" name="title[]" placeholder="Period Title">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <input type="time" class="form-control" name="start[]" placeholder="Period Start">
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <input type="time" class="form-control" name="end[]" placeholder="Period End">
+                                </div>
+                            </div>
+                        </div>
+                    <?php endfor; ?>
+                    <div class="clearfix"></div>
+                    <button type="submit" name="submit" class="btn btn-primary" style="padding:10px 30px;"><i class="fa fa-save"></i> Save Period</button>
+                </form>
             </div>
         </div>
     </div>

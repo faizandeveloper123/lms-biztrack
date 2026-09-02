@@ -3,124 +3,226 @@ define('HIIFI', true);
 require_once __DIR__ . '/config.php';
 require_login();
 
-$page_title = 'Monthly Attendance';
+$page_title = 'Monthly Attendance Report';
 
-$sel_class = (int) ($_GET['class_id'] ?? 0);
+try {
+    db_query("CREATE TABLE IF NOT EXISTS staff_attendance (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        employee_id INT NOT NULL,
+        att_date DATE NOT NULL,
+        status VARCHAR(10) NOT NULL DEFAULT 'present',
+        time_in TIME NULL, time_out TIME NULL,
+        UNIQUE KEY uq_emp_attdate (employee_id, att_date)
+    ) ENGINE=InnoDB");
+} catch (\Throwable $e) { /* table exists */ }
+
+// Sessions 2018-2019 .. 2030-2031
+$currentSession = get_setting('session_year', '2026-2027');
+$sessionOptions = [];
+for ($s = 2018; $s <= 2030; $s++) { $sessionOptions[$s . '-' . ($s + 1)] = $s . '-' . ($s + 1); }
+
+$sel_session = $_GET['session'] ?? $currentSession;
+if (!isset($sessionOptions[$sel_session])) { $sel_session = $currentSession; }
+$sel_year = (int) substr($sel_session, 0, 4);
+if ($sel_year < 1900) { $sel_year = (int) date('Y'); }
+
 $sel_month = (int) ($_GET['month'] ?? (int) date('m'));
-$sel_year  = (int) ($_GET['year'] ?? (int) date('Y'));
+if ($sel_month < 1 || $sel_month > 12) { $sel_month = (int) date('m'); }
 
-$classes = [];
-$res = db_query("SELECT class_id, class_name FROM classes WHERE status=1 ORDER BY class_name");
-while ($row = $res->fetch_assoc()) { $classes[] = $row; }
+$search = trim($_GET['search'] ?? '');
 
 $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $sel_month, $sel_year);
-$firstDay = "$sel_year-$sel_month-01";
-$lastDay = "$sel_year-$sel_month-$daysInMonth";
+$firstDay = sprintf('%04d-%02d-01', $sel_year, $sel_month);
+$lastDay  = sprintf('%04d-%02d-%02d', $sel_year, $sel_month, $daysInMonth);
 
-$students = [];
-if ($sel_class > 0) {
-    $res = db_query("SELECT student_id, first_name, father_name, roll_no FROM students WHERE class_id=$sel_class AND status=1 ORDER BY first_name");
-    while ($row = $res->fetch_assoc()) { $row['days'] = []; $students[$row['student_id']] = $row; }
-} elseif (!$sel_class) {
-    $res = db_query("SELECT student_id, first_name, father_name, roll_no, class_id FROM students WHERE status=1 ORDER BY class_id, first_name");
-    while ($row = $res->fetch_assoc()) { $row['days'] = []; $students[$row['student_id']] = $row; }
+// ---- CSV export -----------------------------------------------------------
+if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+    $expEmps = get_emp_records($sel_year, $sel_month, $search);
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="monthly_attendance_' . $sel_month . '_' . $sel_year . '.csv"');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, array_merge(['Employee'], range(1, $daysInMonth)));
+    foreach ($expEmps as $emp) {
+        $row = [];
+        $row[] = $emp['name'];
+        for ($d = 1; $d <= $daysInMonth; $d++) {
+            $stt = $emp['days'][$d] ?? '';
+            $row[] = ['present'=>'P','absent'=>'A','late'=>'L','leave'=>'Lv','short_leave'=>'SL'][$stt] ?? '';
+        }
+        fputcsv($out, $row);
+    }
+    fclose($out);
+    exit;
 }
 
-$att_map = [];
-if ($students) {
-    $ids = implode(',', array_keys($students));
-    $res = db_query("SELECT student_id, date, status FROM attendance WHERE date BETWEEN '$firstDay' AND '$lastDay' AND student_id IN ($ids)");
-    while ($row = $res->fetch_assoc()) { $att_map[$row['student_id']][(int)date('j', strtotime($row['date']))] = $row['status']; }
+function get_emp_records($year, $month, $searchStr) {
+    $days = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+    $first = sprintf('%04d-%02d-01', $year, $month);
+    $last  = sprintf('%04d-%02d-%02d', $year, $month, $days);
+
+    $sql = "SELECT e.emp_id, e.first_name, e.last_name, e.department FROM employees e
+            WHERE e.status = 1
+              AND EXISTS (SELECT 1 FROM staff_attendance sa WHERE sa.employee_id = e.emp_id AND sa.att_date BETWEEN ? AND ?)";
+    $params = [$first, $last]; $types = 'ss';
+    if ($searchStr !== '') {
+        $sql .= " AND (e.first_name LIKE ? OR e.last_name LIKE ? OR CONCAT(e.first_name, ' ', e.last_name) LIKE ?)";
+        $like = '%' . $searchStr . '%';
+        $params[] = $like; $params[] = $like; $params[] = $like;
+        $types .= 'sss';
+    }
+    $sql .= " ORDER BY e.first_name, e.last_name";
+
+    $stmt = db_prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $emps = [];
+    while ($row = $res->fetch_assoc()) {
+        $emps[$row['emp_id']] = [
+            'id'   => $row['emp_id'],
+            'name' => trim($row['first_name'] . ' ' . $row['last_name']),
+            'days' => [],
+        ];
+    }
+    if (!$emps) return [];
+
+    $ids = implode(',', array_keys($emps));
+    $ra = db_query("SELECT employee_id, att_date, status FROM staff_attendance WHERE att_date BETWEEN '$first' AND '$last' AND employee_id IN ($ids)");
+    while ($row = $ra->fetch_assoc()) {
+        $emps[$row['employee_id']]['days'][(int) date('j', strtotime($row['att_date']))] = $row['status'];
+    }
+    return array_values($emps);
 }
 
-$inClass = [];
-if ($sel_class > 0) { $inClass[''] = 0; }
+$empRecords = get_emp_records($sel_year, $sel_month, $search);
+
+$isPrint = isset($_GET['print']) && $_GET['print'] === '1';
 
 include __DIR__ . '/includes/header.php';
 ?>
 <style>
-.search-bar-student { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:16px; margin-bottom:16px; }
+.panel-emp { margin-top:10px; }
+.box-filter { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; background:#fff; border:1px solid #E5E7EB; border-radius:10px; padding:12px; margin:12px 0; }
 .att-cell { width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:700; border-radius:6px; }
 .att-P { background:#DCFCE7; color:#16A34A; }
 .att-A { background:#FEE2E2; color:#DC2626; }
 .att-L { background:#DBEAFE; color:#377DFF; }
-.att-Leave { background:#FFF7E0; color:#F59E0B; }
+.att-Lv { background:#FFF7E0; color:#F59E0B; }
+.att-SL { background:#EDE9FE; color:#7C3AED; }
 .att-- { background:#F3F4F6; color:#D1D5DB; }
-.grade-banner { color:#F59E0B; }
+@media print {
+    .no-print { display:none!important; }
+    body { background:#fff; }
+    .table { width:100% !important; }
+}
 </style>
 
 <div class="main-content">
     <div class="container-fluid">
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 4px;">
-            <h3 style="font-size:18px; font-weight:800; color:#111827; margin:0;"><i class="fa fa-calendar"></i> Monthly Attendance <span style="font-size:14px; color:#6B7280;">(<?php echo date('F Y', mktime(0,0,0,$sel_month,1,$sel_year)); ?>)</span></h3>
+        <div style="padding:10px 0 8px 0; font-size:13px;" class="no-print">
+            <a href="<?php echo BASE_URL; ?>dashboard.php">Dashboard</a> &nbsp; <i class="fa fa-angle-double-right"></i> &nbsp;
+            Attendance Report
         </div>
 
-        <form method="get" action="monthly_attendance.php" class="search-bar-student">
-            <div class="form-group col-md-3" style="margin-bottom:0;">
-                <label>Class</label>
-                <select name="class_id" class="form-control">
-                    <option value="0">All Classes</option>
-                    <?php foreach ($classes as $c): ?>
-                        <option value="<?php echo $c['class_id']; ?>" <?php echo $sel_class == $c['class_id'] ? 'selected' : ''; ?>><?php echo e($c['class_name']); ?></option>
-                    <?php endforeach; ?>
-                </select>
+        <div class="panel panel-default panel-emp">
+            <div class="panel-heading">
+                <b style="font-size:22px; color:gray;">Monthly Attendance: &nbsp;</b> (<?php echo count($empRecords); ?> Employee Records)
             </div>
-            <div class="form-group col-md-2" style="margin-bottom:0;">
-                <label>Month</label>
-                <select name="month" class="form-control">
-                    <?php for ($m = 1; $m <= 12; $m++): ?>
-                        <option value="<?php echo $m; ?>" <?php echo $sel_month == $m ? 'selected' : ''; ?>><?php echo date('M', mktime(0,0,0,$m,1)); ?></option>
-                    <?php endfor; ?>
-                </select>
-            </div>
-            <div class="form-group col-md-2" style="margin-bottom:0;">
-                <label>Year</label>
-                <select name="year" class="form-control">
-                    <?php for ($y = date('Y'); $y >= date('Y') - 3; $y--): ?>
-                        <option value="<?php echo $y; ?>" <?php echo $sel_year == $y ? 'selected' : ''; ?>><?php echo $y; ?></option>
-                    <?php endfor; ?>
-                </select>
-            </div>
-            <div class="form-group col-md-2" style="margin-bottom:0;">
-                <button type="submit" class="btn btn-primary" style="width:100%;"><i class="fa fa-search"></i> Load</button>
-            </div>
-        </form>
+            <div class="panel-body">
+                <form class="box-filter no-print" action="<?php echo BASE_URL; ?>monthly_attendance.php" method="get">
+                    <div class="col-md-3 col-sm-12 col-xs-12" style="padding: 8px;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="required">Year / Session</label>
+                            <select name="session" class="form-control" style="height:40px;">
+                                <?php foreach ($sessionOptions as $val => $label): ?>
+                                    <option value="<?php echo e($val); ?>" <?php echo $sel_session === $val ? 'selected' : ''; ?>><?php echo e($label); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-12 col-xs-12" style="padding: 8px;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label class="required">Month</label>
+                            <select name="month" id="month" class="form-control" style="height:40px;">
+                                <?php for ($m = 1; $m <= 12; $m++): ?>
+                                    <option value="<?php echo $m; ?>" <?php echo $sel_month === $m ? 'selected' : ''; ?>><?php echo date('F', mktime(0,0,0,$m,1)); ?></option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-4 col-sm-12 col-xs-12" style="padding: 8px;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label>Search Employee</label>
+                            <input type="text" name="search" class="form-control" style="height:40px;" value="<?php echo e($search); ?>" placeholder="Type name...">
+                        </div>
+                    </div>
+                    <div class="col-md-4 col-sm-12 col-xs-12" style="padding:8px;">
+                        <div class="form-group" style="margin-bottom:0;">
+                            <button type="submit" class="btn btn-primary" style="margin-top:23px;"><i class="fa fa-search"></i> Search Attendance</button>
+                            <a target="_blank" href="<?php echo BASE_URL; ?>monthly_attendance.php?session=<?php echo e($sel_session); ?>&month=<?php echo $sel_month; ?>&print=1">
+                                <button type="button" class="btn btn-success" style="margin-top:23px;"><i class="fa fa-print"></i> Print</button>
+                            </a>
+                            <a style="margin-top:23px;" href="<?php echo BASE_URL; ?>monthly_attendance.php?session=<?php echo e($sel_session); ?>&month=<?php echo $sel_month; ?>&export=csv" class="btn btn-success"><i class="fa fa-file-excel-o"></i> Export CSV</a>
+                        </div>
+                    </div>
+                    <div class="clearfix"></div>
+                </form>
 
-        <div style="overflow-x:auto; background:#fff; border:1px solid #E5E7EB; border-radius:14px;">
-            <table class="table table-bordered table-striped" style="width:100%; background:#fff; margin-bottom:0; font-size:11.5px;">
-                <thead>
-                    <tr>
-                        <th style="min-width:40px;">GR</th>
-                        <th style="min-width:150px; text-align:left;">Student</th>
-                        <?php for ($d = 1; $d <= $daysInMonth; $d++): ?>
-                            <th style="width:28px; text-align:center; padding:2px;"><?php echo $d; ?></th>
-                        <?php endfor; ?>
-                        <th style="min-width:130px; text-align:center;">Summary</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (count($students) === 0): ?>
-                        <tr><td colspan="<?php echo $daysInMonth + 3; ?>" style="text-align:center; color:#6B7280; padding:30px;">No students found for the selected filters.</td></tr>
-                    <?php endif; ?>
-                    <?php foreach ($students as $sid => $st): $pc = 0; $ac = 0; ?>
-                        <tr>
-                            <td><?php echo e($st['roll_no'] ?? $sid); ?></td>
-                            <td style="text-align:left;"><strong><?php echo e($st['first_name']); ?></strong></td>
-                            <?php for ($d = 1; $d <= $daysInMonth; $d++): $stt = $att_map[$sid][$d] ?? '-'; if ($stt === 'present') $pc++; if ($stt === 'absent') $ac++; ?>
-                                <td style="text-align:center; padding:2px; border-color:#F3F4F6;">
-                                    <span class="att-cell att-<?php echo $stt === 'present' ? 'P' : ($stt === 'absent' ? 'A' : ($stt === 'late' ? 'L' : ($stt === 'leave' ? 'Leave' : '-'))); ?>"><?php echo $stt === 'present' ? 'P' : ($stt === 'absent' ? 'A' : ($stt === 'late' ? 'L' : ($stt === 'leave' ? 'Lv' : ''))); ?></span>
-                                </td>
-                            <?php endfor; ?>
-                            <td style="text-align:center;">
-                                <span style="color:#16A34A; font-weight:800;"><?php echo $pc; ?>P</span> / <span style="color:#DC2626; font-weight:800;"><?php echo $ac; ?>A</span>
-                                <span style="display:block; font-size:10.5px; color:#6B7280;"><?php echo $daysInMonth > 0 ? round(($pc / $daysInMonth) * 100) : 0; ?>%</span>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+                <?php if (count($empRecords) === 0): ?>
+                    <div style="text-align:center; color:#6B7280; padding:40px; border:1px dashed #E5E7EB; border-radius:10px;">
+                        No attendance records found for <?php echo date('F Y', mktime(0,0,0,$sel_month,1,$sel_year)); ?>.
+                    </div>
+                <?php else: ?>
+                    <div style="overflow-x:auto;">
+                        <table id="listofstudents3" class="table table-striped table-bordered" style="width:100%; font-size:11.5px;">
+                            <thead>
+                                <tr>
+                                    <th style="min-width:150px;">Name</th>
+                                    <th style="min-width:20px;">
+                                        <table border="1" width="100%" class="responsive">
+                                            <tbody><tr>
+                                                <?php for ($d = 1; $d <= $daysInMonth; $d++): ?>
+                                                    <th width="2%" class="thStyle" style="padding:0px; text-align:center;"><?php echo $d; ?></th>
+                                                <?php endfor; ?>
+                                            </tr></tbody>
+                                        </table>
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($empRecords as $emp): ?>
+                                    <tr>
+                                        <td><strong><?php echo e($emp['name']); ?></strong></td>
+                                        <td>
+                                            <table border="1" width="100%" class="responsive">
+                                                <tbody><tr>
+                                                    <?php for ($d = 1; $d <= $daysInMonth; $d++):
+                                                        $stt = $emp['days'][$d] ?? '';
+                                                        $cls = ['present'=>'att-P','absent'=>'att-A','late'=>'att-L','leave'=>'att-Lv','short_leave'=>'att-SL'][$stt] ?? 'att--';
+                                                        $letter = ['present'=>'P','absent'=>'A','late'=>'L','leave'=>'Lv','short_leave'=>'SL'][$stt] ?? '--';
+                                                    ?>
+                                                        <th width="2%" style="padding:0px; text-align:center; background-color:white; color:black;">
+                                                            <span class="att-cell <?php echo $cls; ?>"><?php echo $letter; ?></span>
+                                                        </th>
+                                                    <?php endfor; ?>
+                                                </tr></tbody>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+            </div>
         </div>
     </div>
 </div>
+
+<script>
+<?php if ($isPrint): ?>
+window.addEventListener('load', function(){ window.print(); });
+<?php endif; ?>
+</script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

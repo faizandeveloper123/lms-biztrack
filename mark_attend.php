@@ -8,21 +8,67 @@ $page_title = 'Mark Attendance';
 $message = '';
 $error = '';
 
+// QR / GR lookup endpoint (returns JSON)
+if (isset($_GET['action']) && $_GET['action'] === 'findStudent') {
+    header('Content-Type: application/json');
+    $gr = trim($_GET['gr_no'] ?? '');
+    if ($gr === '') { echo json_encode(['success' => false, 'message' => 'Please enter a GR No / Roll No.']); exit; }
+    $stmt = db_prepare("SELECT s.student_id, s.first_name, s.last_name, s.father_name, s.gr_no, s.roll_no,
+                              s.class_id, s.section_id, s.group_shift, c.class_name, sec.section_name
+                        FROM students s
+                        LEFT JOIN classes c ON s.class_id = c.class_id
+                        LEFT JOIN sections sec ON s.section_id = sec.section_id
+                        WHERE s.status = 1 AND (s.gr_no = ? OR s.roll_no = ? OR CAST(s.student_id AS CHAR) = ?)
+                        LIMIT 1");
+    $stmt->bind_param('sss', $gr, $gr, $gr);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    if ($row) { echo json_encode(['success' => true, 'student' => $row]); }
+    else { echo json_encode(['success' => false, 'message' => 'No student found for GR No: '.$gr]); }
+    exit;
+}
+
 $classes = [];
 $res = db_query("SELECT class_id, class_name FROM classes WHERE status=1 ORDER BY class_name");
 while ($row = $res->fetch_assoc()) { $classes[] = $row; }
 
-$sel_class = (int) ($_GET['class_id'] ?? 0);
-$sel_section = (int) ($_GET['section'] ?? 0);
-$sel_date = $_GET['date'] ?? date('Y-m-d');
+// Class heads (no dedicated table locally; keep the control for parity, All only)
+$classHeads = [];
+
+// Group / Shift options
+$shifts = [];
+$res = db_query("SELECT DISTINCT group_shift FROM students WHERE group_shift IS NOT NULL AND group_shift <> '' ORDER BY group_shift");
+while ($row = $res->fetch_assoc()) { $shifts[] = $row['group_shift']; }
+
+// Sessions (2018-2019 .. 2030-2031)
+$sessionOptions = [];
+$currentSession = get_setting('session_year', '2026-2027');
+for ($s = 2018; $s <= 2030; $s++) {
+    $label = $s . '-' . ($s + 1);
+    $sessionOptions[$label] = $label;
+}
+
+$sel_session   = $_GET['session'] ?? $currentSession;
+$sel_class_head= $_GET['class_head'] ?? '';
+$sel_class     = (int) ($_GET['class_id'] ?? 0);
+$sel_section   = (int) ($_GET['section'] ?? 0);
+$sel_shift     = $_GET['group_shift'] ?? 'All';
+$sel_date      = $_GET['date'] ?? date('Y-m-d');
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $sel_date)) { $sel_date = date('Y-m-d'); }
 
 $students = [];
 if ($sel_class > 0) {
-    $sql = "SELECT s.* FROM students s WHERE s.status=1 AND s.class_id=?";
+    $sql = "SELECT s.*, sec.section_name FROM students s
+            LEFT JOIN sections sec ON s.section_id = sec.section_id
+            WHERE s.status=1 AND s.class_id=?";
     $params = [$sel_class]; $types = 'i';
     if ($sel_section > 0) {
         $sql .= " AND s.section_id=?";
         $params[] = $sel_section; $types .= 'i';
+    }
+    if ($sel_shift !== 'All' && $sel_shift !== '') {
+        $sql .= " AND s.group_shift=?";
+        $params[] = $sel_shift; $types .= 's';
     }
     $sql .= " ORDER BY s.roll_no, s.first_name";
     $stmt = db_prepare($sql);
@@ -43,18 +89,21 @@ if ($sel_class > 0) {
     unset($st);
 }
 
-// Save attendance
+// Save attendance (only writes rows whose value actually changed)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'MarkAttendance') {
-    $date = $_POST['date'] ?? date('Y-m-d');
-    $att = $_POST['att'] ?? [];
+    $date  = $_POST['date'] ?? date('Y-m-d');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) { $date = date('Y-m-d'); }
+    $att   = $_POST['att'] ?? [];
     $count = 0;
     foreach ($att as $sid => $status) {
         $sid = (int) $sid;
-        if ($sid <= 0 || !in_array($status, ['present','absent','late','leave'])) continue;
-        $existing = db_prepare("SELECT attendance_id FROM attendance WHERE student_id=? AND date=?");
+        if ($sid <= 0 || !in_array($status, ['present','absent','late','leave'], true)) continue;
+        $existing = db_prepare("SELECT status FROM attendance WHERE student_id=? AND date=?");
         $existing->bind_param('is', $sid, $date);
         $existing->execute();
-        if ($existing->get_result()->num_rows > 0) {
+        $cur = $existing->get_result()->fetch_assoc();
+        if ($cur && $cur['status'] === $status) continue; // no change -> skip write
+        if ($cur) {
             $up = db_prepare("UPDATE attendance SET status=?, marked_by=? WHERE student_id=? AND date=?");
             $uid = $_SESSION['user_id']; $up->bind_param('siis', $status, $uid, $sid, $date); $up->execute();
         } else {
@@ -63,8 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'MarkA
         }
         $count++;
     }
-    $message = "$count attendance records saved for $date!";
-    // Refresh
+    $message = "$count attendance record(s) updated for $date!";
     header('Location: mark_attend.php?class_id=' . $sel_class . '&section=' . $sel_section . '&date=' . $date . '&saved=1');
     exit;
 }
@@ -79,14 +127,19 @@ if ($sel_class > 0) {
 include __DIR__ . '/includes/header.php';
 ?>
 <style>
-.attendance-radio { display:flex; gap:8px; flex-wrap:wrap; }
-.att-option { padding: 6px 12px; border-radius: 8px; border: 1px solid #E5E7EB; cursor: pointer; font-size: 12px; font-weight: 600; background: #fff; color: #6B7280; transition: all .15s; }
-.att-option.active, .att-option input:checked + .att-option { background: #22C55E; border-color: #22C55E; color: #fff; }
-.att-option input { display: none; }
-.att-option.absent { color:#DC2626; } .att-option.absent.active { background:#DC2626; border-color:#DC2626; color:#fff; }
-.att-option.late { color:#377DFF; } .att-option.late.active { background:#377DFF; border-color:#377DFF; color:#fff; }
-.att-option.leave { color:#F59E0B; } .att-option.leave.active { background:#F59E0B; border-color:#F59E0B; color:#fff; }
-.att-option.selected { color:#fff; }
+.search-bar-student { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:16px; margin-bottom:16px; }
+.qr-scan-btn { background:#22C55E; border:none; color:#fff; }
+.qr-scan-btn:hover { background:#16A34A; color:#fff; }
+.attendance-pills { display:flex; gap:6px; flex-wrap:wrap; }
+.att-option { display:inline-flex; align-items:center; justify-content:center; min-width:36px; height:30px; padding:0 9px; border-radius:8px; border:1px solid #E5E7EB; cursor:pointer; font-size:12px; font-weight:700; color:#6B7280; background:#fff; transition:all .15s; }
+.att-option input { display:none; }
+.att-option span { display:inline-flex; align-items:center; justify-content:center; width:100%; height:100%; border-radius:6px; }
+.att-option.present input:checked ~ span { background:#22C55E; color:#fff; }
+.att-option.absent  input:checked ~ span { background:#DC2626; color:#fff; }
+.att-option.late    input:checked ~ span { background:#2563EB; color:#fff; }
+.att-option.leave   input:checked ~ span { background:#D97706; color:#fff; }
+.att-option .att-label { color:inherit; }
+.att-option.present { color:#16A34A; } .att-option.absent { color:#DC2626; } .att-option.late { color:#2563EB; } .att-option.leave { color:#D97706; }
 </style>
 
 <div class="main-content">
@@ -94,37 +147,94 @@ include __DIR__ . '/includes/header.php';
 
         <?php if (isset($_GET['saved'])): ?><div class="alert alert-success">Attendance saved successfully!</div><?php endif; ?>
         <?php if ($message): ?><div class="alert alert-success"><?php echo e($message); ?></div><?php endif; ?>
+        <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
 
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 4px;">
-            <h3 style="font-size:18px; font-weight:800; color:#111827; margin:0;"><i class="fa fa-clipboard-check"></i> Mark Attendance <span style="font-size:14px; color:#6B7280;">(<?php echo date('d M, Y', strtotime($sel_date)); ?>)</span></h3>
-            <a href="<?php echo BASE_URL; ?>mark_attendanceReport_list.php" class="btn btn-info" style="color:#fff;"><i class="fa fa-bar-chart"></i> Attendance Analytics</a>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding-bottom:10px; border-bottom:1px solid #e2e8f0;">
+            <div style="font-size:13px;">
+                <a href="<?php echo BASE_URL; ?>dashboard.php">Dashboard</a> &nbsp; <i class="fa fa-angle-double-right"></i> &nbsp;
+                <a href="#">Attendance</a> &nbsp; <i class="fa fa-angle-double-right"></i> &nbsp;
+                <strong>Mark Attendance</strong>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button type="button" class="btn qr-scan-btn" style="margin:0;" data-toggle="modal" data-target="#qrScanModal">
+                    <i class="fa fa-qrcode"></i> Open QR Attendance Scanner
+                </button>
+            </div>
         </div>
 
-        <form method="get" action="mark_attend.php" class="search-bar-student" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:16px; margin-bottom:16px;">
-            <div class="form-group col-md-3" style="margin-bottom:0;">
-                <label class="required">Class</label>
-                <select name="class_id" id="mk_class" class="form-control" required="">
-                    <option value="">Select Class</option>
-                    <?php foreach ($classes as $c): ?>
-                        <option value="<?php echo $c['class_id']; ?>" <?php echo $sel_class == $c['class_id'] ? 'selected' : ''; ?>><?php echo e($c['class_name']); ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="form-group col-md-3" style="margin-bottom:0;">
-                <label>Section</label>
-                <select name="section" id="mk_section" class="form-control">
-                    <option value="">All Sections</option>
-                    <?php foreach ($sections as $sec): ?>
-                        <option value="<?php echo $sec['section_id']; ?>" <?php echo $sel_section == $sec['section_id'] ? 'selected' : ''; ?>><?php echo e($sec['section_name']); ?></option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-            <div class="form-group col-md-3" style="margin-bottom:0;">
-                <label>Date</label>
-                <input type="date" name="date" class="form-control" value="<?php echo e($sel_date); ?>">
-            </div>
-            <div class="form-group col-md-2" style="margin-bottom:0;">
-                <button type="submit" class="btn btn-primary" style="width:100%;"><i class="fa fa-search"></i> Load</button>
+        <form class="" action="mark_attend.php" method="get">
+            <div class="panel panel-default">
+                <div class="panel-heading"> Students Records <span style="float:right;margin-top: -7px;"></span><div class="clearfix"></div></div>
+                <div class="panel-body">
+                    <div class="col-md-12 filter-row" id="advanceSearch" style="">
+                        <div class="col-md-3 col-xs-12" style="padding: 8px;">
+                            <div class="form-group">
+                                <label class="required">Session</label>
+                                <select name="session" class="form-control inputheight">
+                                    <?php foreach ($sessionOptions as $val => $label): ?>
+                                        <option value="<?php echo e($val); ?>" <?php echo $sel_session == $val ? 'selected' : ''; ?>><?php echo e($label); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2" style="padding: 8px;">
+                            <div class="form-group">
+                                <label class="required">Class Head</label>
+                                <select name="class_head" id="class_head" class="form-control" onchange="getClassesByHead(this.value)">
+                                    <option value="">All</option>
+                                    <?php foreach ($classHeads as $ch): ?>
+                                        <option value="<?php echo e($ch['id']); ?>" <?php echo $sel_class_head == $ch['id'] ? 'selected' : ''; ?>><?php echo e($ch['name']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2" style="padding: 8px;">
+                            <div class="form-group">
+                                <label class="required">Class</label>
+                                <select name="class_id" id="class_id" class="form-control" onchange="getSectionAll(this.value)">
+                                    <option value="">Select Class</option>
+                                    <?php foreach ($classes as $c): ?>
+                                        <option value="<?php echo $c['class_id']; ?>" <?php echo $sel_class == $c['class_id'] ? 'selected' : ''; ?>><?php echo e($c['class_name']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2" style="padding: 8px;">
+                            <div class="form-group">
+                                <label class="required">Section</label>
+                                <select name="section" id="txt_section" class="form-control inputheight">
+                                    <option value="">All</option>
+                                    <?php foreach ($sections as $sec): ?>
+                                        <option value="<?php echo $sec['section_id']; ?>" <?php echo $sel_section == $sec['section_id'] ? 'selected' : ''; ?>><?php echo e($sec['section_name']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2" style="padding: 8px;">
+                            <div class="form-group">
+                                <label>Group / Shift</label>
+                                <select name="group_shift" class="form-control">
+                                    <option value="All">All</option>
+                                    <?php foreach ($shifts as $sh): ?>
+                                        <option value="<?php echo e($sh); ?>" <?php echo $sel_shift == $sh ? 'selected' : ''; ?>><?php echo e($sh); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2" style="padding: 8px;">
+                            <div class="form-group">
+                                <label class="required">Attendance Date</label>
+                                <input class="form-control" type="date" name="date" id="date" value="<?php echo e($sel_date); ?>">
+                            </div>
+                        </div>
+                        <div class="col-md-2" style="padding:8px;">
+                            <div class="form-group">
+                                <button type="submit" class="btn btn-primary" style="margin-top: 20px;">Search</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="clearfix"></div>
+                </div>
             </div>
         </form>
 
@@ -136,40 +246,45 @@ include __DIR__ . '/includes/header.php';
                 <table id="listofstudents" class="table table-striped table-bordered" style="width:100%; background:#fff; margin-bottom:10px;">
                     <thead>
                         <tr>
-                            <th>S.No</th>
-                            <th>GR. No</th>
-                            <th>Student / Father Name</th>
-                            <th>Section</th>
-                            <th>Attendance</th>
+                            <th width="5%">S.No</th>
+                            <th width="7%">GR. No</th>
+                            <th width="20%">Student / Father Name</th>
+                            <th width="10%">Section</th>
+                            <th width="8%">Shift</th>
+                            <th width="50%">Attendance</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (count($students) === 0): ?>
-                            <tr><td colspan="5" style="text-align:center; color:#6B7280; padding:30px;">No students found in selected class/section.</td></tr>
+                            <tr><td colspan="6" style="text-align:center; color:#6B7280; padding:30px;">No students found in selected class/section.</td></tr>
                         <?php endif; ?>
-                        <?php $i = 1; foreach ($students as $st): ?>
+                        <?php $i = 1; foreach ($students as $st): $cur = $st['att_status']; ?>
                             <tr>
                                 <td><?php echo $i++; ?></td>
-                                <td><?php echo e($st['roll_no'] ?? $st['student_id']); ?></td>
+                                <td><?php echo e($st['gr_no'] ?? ($st['roll_no'] ?? $st['student_id'])); ?></td>
                                 <td>
                                     <strong><?php echo e($st['first_name']); ?></strong>
                                     <div style="font-size:11px; color:#6B7280;"><?php echo e($st['father_name'] ?? $st['last_name']); ?></div>
                                 </td>
-                                <td>-</td>
+                                <td><?php echo e($st['section_name'] ?? '-'); ?></td>
+                                <td><?php echo e($st['group_shift'] ?? '-'); ?></td>
                                 <td>
-                                    <div class="attendance-radio">
-                                        <?php $cur = $st['att_status']; ?>
-                                        <label class="att-option <?php echo $cur === 'present' ? 'active selected' : ''; ?>" style="<?php echo $cur === 'present' ? 'background:#22C55E;border-color:#22C55E;' : ''; ?>">
-                                            <input type="radio" name="att[<?php echo $st['student_id']; ?>]" value="present" <?php echo $cur === 'present' ? 'checked' : ''; ?>> P
+                                    <div class="attendance-pills">
+                                        <label class="att-option present">
+                                            <input type="radio" name="att[<?php echo $st['student_id']; ?>]" value="present" <?php echo $cur === 'present' ? 'checked' : ''; ?>>
+                                            <span>P</span>
                                         </label>
-                                        <label class="att-option absent <?php echo $cur === 'absent' ? 'active selected' : ''; ?>" style="<?php echo $cur === 'absent' ? 'background:#DC2626;border-color:#DC2626;color:#fff;' : ''; ?>">
-                                            <input type="radio" name="att[<?php echo $st['student_id']; ?>]" value="absent" <?php echo $cur === 'absent' ? 'checked' : ''; ?>> A
+                                        <label class="att-option absent">
+                                            <input type="radio" name="att[<?php echo $st['student_id']; ?>]" value="absent" <?php echo $cur === 'absent' ? 'checked' : ''; ?>>
+                                            <span>A</span>
                                         </label>
-                                        <label class="att-option late <?php echo $cur === 'late' ? 'active selected' : ''; ?>" style="<?php echo $cur === 'late' ? 'background:#377DFF;border-color:#377DFF;color:#fff;' : ''; ?>">
-                                            <input type="radio" name="att[<?php echo $st['student_id']; ?>]" value="late" <?php echo $cur === 'late' ? 'checked' : ''; ?>> L
+                                        <label class="att-option late">
+                                            <input type="radio" name="att[<?php echo $st['student_id']; ?>]" value="late" <?php echo $cur === 'late' ? 'checked' : ''; ?>>
+                                            <span>L</span>
                                         </label>
-                                        <label class="att-option leave <?php echo $cur === 'leave' ? 'active selected' : ''; ?>" style="<?php echo $cur === 'leave' ? 'background:#F59E0B;border-color:#F59E0B;color:#fff;' : ''; ?>">
-                                            <input type="radio" name="att[<?php echo $st['student_id']; ?>]" value="leave" <?php echo $cur === 'leave' ? 'checked' : ''; ?>> Leave
+                                        <label class="att-option leave">
+                                            <input type="radio" name="att[<?php echo $st['student_id']; ?>]" value="leave" <?php echo $cur === 'leave' ? 'checked' : ''; ?>>
+                                            <span>Lv</span>
                                         </label>
                                     </div>
                                 </td>
@@ -180,27 +295,104 @@ include __DIR__ . '/includes/header.php';
             </div>
             <button type="submit" name="submit" class="btn btn-success" style="padding:10px 30px;"><i class="fa fa-check"></i> Save Attendance</button>
         </form>
+        <?php else: ?>
+            <div style="text-align:center; color:#6B7280; padding:40px; background:#fff; border:1px solid #E5E7EB; border-radius:14px;">
+                Please select a Class and click Search to load students.
+            </div>
         <?php endif; ?>
 
     </div>
 </div>
 
+<!-- QR Scanner Modal -->
+<div class="modal fade" id="qrScanModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span></button>
+                <h4 class="modal-title"><i class="fa fa-qrcode"></i> QR Attendance Scanner</h4>
+            </div>
+            <div class="modal-body">
+                <p style="color:#6B7280;">Scan a student QR code or enter the GR No / Roll No manually below.</p>
+                <div class="input-group">
+                    <input type="text" id="qrGrNo" class="form-control" placeholder="Enter GR No / Roll No">
+                    <span class="input-group-btn">
+                        <button class="btn btn-primary" type="button" onclick="qrLookup()"><i class="fa fa-search"></i> Lookup</button>
+                    </span>
+                </div>
+                <div id="qrResult" style="margin-top:12px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
-document.getElementById('mk_class').addEventListener('change', function(){
+document.getElementById('class_id').addEventListener('change', function(){
     var cid = this.value;
-    var sel = document.getElementById('mk_section');
-    sel.innerHTML = '<option value="">All Sections</option>';
+    var sel = document.getElementById('txt_section');
+    sel.innerHTML = '<option value="">All</option>';
     if (!cid) return;
-    fetch('ajax_get_sections.php?class_id=' + cid)
+    fetch('<?php echo BASE_URL; ?>ajax_get_sections.php?class_id=' + cid)
         .then(function(r){ return r.json(); })
         .then(function(data){
-            data.forEach(function(s){
-                var o = document.createElement('option');
-                o.value = s.section_id; o.textContent = s.section_name;
-                sel.appendChild(o);
-            });
-        });
+            if (data && data.length) {
+                data.forEach(function(s){
+                    var o = document.createElement('option');
+                    o.value = s.section_id; o.textContent = s.section_name;
+                    sel.appendChild(o);
+                });
+            }
+        })
+        .catch(function(){ /* fallback: keep All option only */ });
 });
+
+function getSectionAll(val){ document.getElementById('class_id').value = val; document.getElementById('class_id').dispatchEvent(new Event('change')); }
+function getClassesByHead(val){
+    if (!val) { resetClassDropdown(); return; }
+    fetch('<?php echo BASE_URL; ?>ajax_get_classes_by_head.php?head=' + encodeURIComponent(val))
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+            if (data && data.length) {
+                var sel = document.getElementById('class_id');
+                sel.innerHTML = '<option value="">Select Class</option>';
+                data.forEach(function(c){
+                    var o = document.createElement('option');
+                    o.value = c.class_id; o.textContent = c.class_name;
+                    sel.appendChild(o);
+                });
+            }
+        })
+        .catch(function(){ /* capability fallback: keep all classes */ });
+}
+function resetClassDropdown(){
+    var sel = document.getElementById('class_id');
+    if (sel.querySelector('option[value=""]')) { /* keep as-is */ }
+}
+
+function qrLookup(){
+    var gr = document.getElementById('qrGrNo').value.trim();
+    var out = document.getElementById('qrResult');
+    if (!gr) { out.innerHTML = '<div class="alert alert-warning">Please enter a GR No / Roll No.</div>'; return; }
+    out.innerHTML = '<div class="text-muted"><i class="fa fa-spinner fa-spin"></i> Searching...</div>';
+    fetch('<?php echo BASE_URL; ?>mark_attend.php?action=findStudent&gr_no=' + encodeURIComponent(gr))
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            if (d.success) {
+                var s = d.student;
+                var today = new Date().toISOString().slice(0,10);
+                var link = '<?php echo BASE_URL; ?>mark_attend.php?class_id=' + s.class_id + '&date=' + today;
+                out.innerHTML = '<div class="alert alert-success">' +
+                    '<strong>' + escapeHtml(s.first_name) + ' ' + escapeHtml(s.last_name || '') + '</strong><br>' +
+                    'GR No: ' + escapeHtml(s.gr_no || s.roll_no || s.student_id) + '<br>' +
+                    'Class: ' + escapeHtml(s.class_name || '-') + ' / ' + escapeHtml(s.section_name || '-') +
+                    '<br><a href="' + link + '" class="btn btn-success btn-sm" style="margin-top:8px;"><i class="fa fa-edit"></i> Mark Attendance</a></div>';
+            } else {
+                out.innerHTML = '<div class="alert alert-danger">' + escapeHtml(d.message) + '</div>';
+            }
+        })
+        .catch(function(){ out.innerHTML = '<div class="alert alert-danger">Search service unavailable. Please try the manual list.</div>'; });
+}
+function escapeHtml(t){ var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
 </script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

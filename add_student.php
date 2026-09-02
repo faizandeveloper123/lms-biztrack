@@ -3,6 +3,15 @@ define('HIIFI', true);
 require_once __DIR__ . '/config.php';
 require_login();
 
+// Ensure the documents table exists
+db_query("CREATE TABLE IF NOT EXISTS student_documents (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT,
+    doc_type VARCHAR(100),
+    file_path VARCHAR(255),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)");
+
 $page_title = 'Add New Student';
 
 $message = '';
@@ -85,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'AddAd
     $dob_db         = parse_date($dob);
     $adm_db         = parse_date($date_of_adms) ?? date('Y-m-d');
 
-    // Photo upload
+    // Photo upload (prefer uploaded file, else use captured webcam data URL)
     $photo = null;
     if (!empty($_FILES['img_file']['name']) && $_FILES['img_file']['error'] === UPLOAD_ERR_OK) {
         $dir = __DIR__ . '/uploads/students';
@@ -93,6 +102,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'AddAd
         $ext = strtolower(pathinfo($_FILES['img_file']['name'], PATHINFO_EXTENSION));
         $photo = 's_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
         if (!move_uploaded_file($_FILES['img_file']['tmp_name'], $dir . '/' . $photo)) { $photo = null; }
+    } elseif (!empty($_POST['captured_image'])) {
+        $dir = __DIR__ . '/uploads/students';
+        if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
+        $data = $_POST['captured_image'];
+        $prefix = 'data:image/jpeg;base64,';
+        if (stripos($data, $prefix) === 0) {
+            $base64 = substr($data, strlen($prefix));
+            $bin = base64_decode($base64, true);
+            if ($bin !== false) {
+                $photo = 's_' . time() . '_' . rand(1000, 9999) . '.jpg';
+                if (file_put_contents($dir . '/' . $photo, $bin) === false) { $photo = null; }
+            }
+        }
     }
 
     if ($first_name === '' || $class_id === 0) {
@@ -134,6 +156,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'AddAd
                 $u = db_prepare('UPDATE students SET gr_no = ? WHERE student_id = ?');
                 $u->bind_param('si', $gr, $studentId);
                 $u->execute();
+
+                // Save uploaded documents
+                $docTypes = isset($_POST['doc_types']) ? (array) $_POST['doc_types'] : [];
+                if (!empty($_FILES['doc_files'])) {
+                    $docFiles = $_FILES['doc_files'];
+                    $docDir = __DIR__ . '/uploads/students/documents';
+                    if (!is_dir($docDir)) { @mkdir($docDir, 0775, true); }
+                    $docInsert = db_prepare('INSERT INTO student_documents (student_id, doc_type, file_path) VALUES (?, ?, ?)');
+                    foreach ($docFiles['name'] as $i => $name) {
+                        if (empty($name)) continue;
+                        if ($docFiles['error'][$i] !== UPLOAD_ERR_OK) continue;
+                        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                        $fname = 'doc_' . $studentId . '_' . time() . '_' . $i . '_' . rand(1000, 9999) . '.' . $ext;
+                        if (!move_uploaded_file($docFiles['tmp_name'][$i], $docDir . '/' . $fname)) continue;
+                        $dtype = isset($docTypes[$i]) ? trim($docTypes[$i]) : '';
+                        $docInsert->bind_param('iss', $studentId, $dtype, $fname);
+                        $docInsert->execute();
+                    }
+                    $docInsert->close();
+                }
             }
             $message = 'Student added successfully! GR No: ' . ($studentId > 0 ? $gr : '');
         } catch (Exception $ex) {
@@ -194,10 +236,15 @@ include __DIR__ . '/includes/header.php';
 
                     <form id="studentForm" action="add_student.php" method="post" enctype="multipart/form-data" class="form-horizontal form-label-left">
                         <input type="hidden" name="action" value="AddAdmission">
+                        <input type="hidden" name="captured_image" id="captured_image" value="">
 
                         <div class="wizard-pane active" id="pane-basic-info">
                             <div class="pane-wrap">
                                 <div class="pane-title"><i class="fa fa-id-card"></i> Basic Information</div>
+                                <div class="form-group" style="margin-bottom: 12px;">
+                                    <button type="button" class="btn btn-info btn-sm" id="btnSelectFamily"><i class="fa fa-users"></i> Select Family</button>
+                                    <small style="margin-left:8px; color:#6B7280;">Pick an existing family to auto-fill guardian &amp; parent details.</small>
+                                </div>
                                 <div class="row">
                                     <div class="form-group col-md-3">
                                         <label for="fname">Student Name <span style="color:red;">*</span></label>
@@ -265,6 +312,8 @@ include __DIR__ . '/includes/header.php';
                                     <div class="form-group col-md-3">
                                         <label>Photo</label>
                                         <input type="file" class="form-control" name="img_file" id="fileInput" accept="image/*">
+                                        <button type="button" class="btn btn-warning btn-sm" id="btnCapturePhoto" style="margin-top:6px; width:100%;"><i class="fa fa-camera"></i> Capture Photo</button>
+                                        <img id="photoPreview" src="" alt="Captured" style="display:none; margin-top:6px; width:100%; border-radius:8px; border:1px solid #E5E7EB;">
                                     </div>
                                     <div class="form-group col-md-3">
                                         <label>Locality</label>
@@ -500,14 +549,17 @@ include __DIR__ . '/includes/header.php';
                                 <div class="row">
                                     <div class="form-group col-md-6">
                                         <label>B-Form / CNIC / Photo</label>
+                                        <input type="hidden" name="doc_types[]" value="B-Form / CNIC / Photo">
                                         <input type="file" id="docFile_0" name="doc_files[]" accept=".jpg,.jpeg,.png,.pdf" class="form-control">
                                     </div>
                                     <div class="form-group col-md-6">
                                         <label>Previous School Certificate</label>
+                                        <input type="hidden" name="doc_types[]" value="Previous School Certificate">
                                         <input type="file" id="docFile_1" name="doc_files[]" accept=".jpg,.jpeg,.png,.pdf" class="form-control">
                                     </div>
                                     <div class="form-group col-md-6">
                                         <label>Fee Challan / DMC</label>
+                                        <input type="hidden" name="doc_types[]" value="Fee Challan / DMC">
                                         <input type="file" id="docFile_2" name="doc_files[]" accept=".jpg,.jpeg,.png,.pdf" class="form-control">
                                     </div>
                                 </div>
@@ -518,6 +570,56 @@ include __DIR__ . '/includes/header.php';
                             <button type="submit" class="btn btn-success" name="submit" style="padding: 10px 34px; font-size: 14px;"><i class="fa fa-check"></i> Submit</button>
                         </div>
                     </form>
+
+                    <!-- Camera Capture Modal -->
+                    <div class="modal fade" id="cameraModal" tabindex="-1" role="dialog" aria-labelledby="cameraModalLabel" aria-hidden="true">
+                        <div class="modal-dialog" role="document">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                                    <h4 class="modal-title" id="cameraModalLabel"><i class="fa fa-video-camera"></i> Capture Photo</h4>
+                                </div>
+                                <div class="modal-body" style="text-align:center;">
+                                    <div style="position:relative; max-width:320px; margin:0 auto;">
+                                        <video id="cameraVideo" autoplay playsinline style="width:100%; border-radius:12px; background:#111;"></video>
+                                        <div style="position:absolute; top:0; left:0; right:0; bottom:0; margin:auto; width:150px; height:150px; border:3px solid #FF7A1B; border-radius:50%; pointer-events:none;"></div>
+                                    </div>
+                                    <canvas id="cameraCanvas" style="display:none; width:100%; border-radius:12px;"></canvas>
+                                    <div id="cameraMessage" style="display:none; margin-top:10px; color:#dc3545; font-weight:600;"></div>
+                                    <img id="cameraPreview" src="" alt="Captured" style="display:none; max-width:200px; border-radius:12px; border:2px solid #FF7A1B; margin:10px auto;">
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                                    <button type="button" class="btn btn-info" id="btnUseCapture" style="display:none;"><i class="fa fa-check"></i> Use This Photo</button>
+                                    <button type="button" class="btn btn-warning" id="btnCapture"><i class="fa fa-camera"></i> Capture</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Select Family Modal -->
+                    <div class="modal fade" id="familyModal" tabindex="-1" role="dialog" aria-labelledby="familyModalLabel" aria-hidden="true">
+                        <div class="modal-dialog" role="document">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                                    <h4 class="modal-title" id="familyModalLabel"><i class="fa fa-users"></i> Select Family</h4>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="input-group" style="margin-bottom:10px;">
+                                        <input type="text" id="familySearchInput" class="form-control" placeholder="Search by family name, father, cell, CNIC or address...">
+                                        <span class="input-group-btn"><button class="btn btn-default" type="button" id="familySearchBtn"><i class="fa fa-search"></i></button></span>
+                                    </div>
+                                    <div id="familyResults">
+                                        <p style="color:#6B7280;">Start typing to find an existing family.</p>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="tab-pane" id="multi">
@@ -564,6 +666,164 @@ document.getElementById('class').addEventListener('change', function(){
             });
         });
 });
+
+/* ===== Live Photo Capture (Webcam) ===== */
+(function(){
+    var stream = null;
+    var video = document.getElementById('cameraVideo');
+    var canvas = document.getElementById('cameraCanvas');
+    var preview = document.getElementById('cameraPreview');
+    var msg = document.getElementById('cameraMessage');
+    var captureBtn = document.getElementById('btnCapture');
+    var useBtn = document.getElementById('btnUseCapture');
+    var captured = document.getElementById('captured_image');
+
+    function stopStream() {
+        if (stream) { stream.getTracks().forEach(function(t){ t.stop(); }); stream = null; }
+    }
+
+    function showMsg(text) {
+        msg.textContent = text;
+        msg.style.display = 'block';
+    }
+    function hideMsg() { msg.style.display = 'none'; }
+
+    function startCamera() {
+        stopStream();
+        video.style.display = 'block';
+        hideMsg();
+        captureBtn.style.display = 'inline-block';
+        useBtn.style.display = 'none';
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({video: true})
+                .then(function(s){
+                    stream = s;
+                    video.srcObject = s;
+                    video.play();
+                })
+                .catch(function(err){
+                    console.error('Camera error:', err);
+                    showMsg('Camera unavailable or blocked. Please allow camera access or use the Upload Photo option instead.');
+                    captureBtn.style.display = 'none';
+                });
+        } else {
+            showMsg('Live camera is not supported in this browser. Please use the Upload Photo option instead.');
+            captureBtn.style.display = 'none';
+        }
+    }
+
+    captureBtn.addEventListener('click', function(){
+        if (!video.videoWidth) { showMsg('Camera is not ready yet. Please wait...'); return; }
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        var dataURL = canvas.toDataURL('image/jpeg', 0.92);
+        canvas.style.display = 'block';
+        video.style.display = 'none';
+        preview.src = dataURL;
+        preview.style.display = 'block';
+        captureBtn.style.display = 'none';
+        useBtn.style.display = 'inline-block';
+        captured.value = dataURL;
+        stopStream();
+    });
+
+    useBtn.addEventListener('click', function(){
+        var thumb = document.getElementById('photoPreview');
+        if (captured.value) { thumb.src = captured.value; thumb.style.display = 'block'; }
+        $('#cameraModal').modal('hide');
+        if (document.getElementById('fileInput')) { document.getElementById('fileInput').value = ''; }
+    });
+
+    $('#cameraModal').on('hidden.bs.modal', function(){ stopStream(); });
+    document.getElementById('btnCapturePhoto').addEventListener('click', function(){ startCamera(); $('#cameraModal').modal('show'); });
+
+    /* File upload still shows preview so it can be used instead */
+    document.getElementById('fileInput').addEventListener('change', function(){
+        if (this.files && this.files[0]) {
+            var reader = new FileReader();
+            reader.onload = function(e){
+                var thumb = document.getElementById('photoPreview');
+                thumb.src = e.target.result;
+                thumb.style.display = 'block';
+            };
+            reader.readAsDataURL(this.files[0]);
+        }
+    });
+})();
+
+/* ===== Select Family ===== */
+(function(){
+    var modal = $('#familyModal');
+    var input = document.getElementById('familySearchInput');
+    var results = document.getElementById('familyResults');
+    var timer = null;
+
+    function search() {
+        var q = input.value.trim();
+        if (!q) {
+            results.innerHTML = '<p style="color:#6B7280;">Type to search for an existing family.</p>';
+            return;
+        }
+        fetch('ajax_get_families.php?q=' + encodeURIComponent(q))
+            .then(function(r){ return r.json(); })
+            .then(function(data){
+                if (!data || !data.length) {
+                    results.innerHTML = '<p style="color:#6B7280;">No family found matching "' + escapeHtml(q) + '".</p>';
+                    return;
+                }
+                results.innerHTML = '';
+                data.forEach(function(f){
+                    var row = document.createElement('div');
+                    row.className = 'family-result-item';
+                    row.style.cssText = 'padding:9px 10px; border:1px solid #E5E7EB; border-radius:8px; margin-bottom:6px; cursor:pointer; transition:background .15s; font-size:13px;';
+                    row.innerHTML = '<strong>' + escapeHtml(f.family_name) + '</strong> <small style="color:#6B7280;">(Father: ' + escapeHtml(f.father_name || '-') + ' | Cell: ' + escapeHtml(f.gcellno || '-') + ')</small>';
+                    row.addEventListener('mouseenter', function(){ this.style.background = '#FFF3E6'; });
+                    row.addEventListener('mouseleave', function(){ this.style.background = '#fff'; });
+                    row.addEventListener('click', (function(family){ return function(){
+                        fillForm(family);
+                        modal.modal('hide');
+                    }; })(f));
+                    results.appendChild(row);
+                });
+            })
+            .catch(function(){ results.innerHTML = '<p style="color:#dc3545;">Failed to load families. Please try again.</p>'; });
+    }
+
+    function fillForm(f) {
+        var map = {
+            'gname': f.guardian_name,
+            'Gcnic': f.guardian_cnic,
+            'Gcellno': f.guardian_cellno,
+            'Gqualification': f.guardian_qualification,
+            'Goccupation': f.guardian_occupation,
+            'Gincome': f.guardian_income,
+            'gardian_email': f.guardian_email,
+            'Gaddress': f.guardian_address,
+            'father_occupation': f.father_occupation,
+            'cnic': f.cnic,
+            'address': f.address
+        };
+        Object.keys(map).forEach(function(name){
+            var el = document.querySelector('#studentForm [name="' + name + '"]');
+            if (el && map[name] !== null && map[name] !== undefined) { el.value = map[name]; }
+        });
+    }
+
+    function escapeHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+            return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+        });
+    }
+
+    document.getElementById('btnSelectFamily').addEventListener('click', function(){
+        input.value = '';
+        results.innerHTML = '<p style="color:#6B7280;">Type to search for an existing family.</p>';
+        modal.modal('show');
+    });
+    input.addEventListener('input', function(){ clearTimeout(timer); timer = setTimeout(search, 350); });
+    document.getElementById('familySearchBtn').addEventListener('click', search);
+})();
 </script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

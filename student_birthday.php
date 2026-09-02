@@ -8,8 +8,9 @@ $page_title = 'Student Birthdays';
 $month = (int) ($_GET['month'] ?? (int) date('m'));
 
 $students = [];
-$stmt = db_prepare("SELECT s.*, c.class_name FROM students s
+$stmt = db_prepare("SELECT s.*, c.class_name, sec.section_name FROM students s
                     LEFT JOIN classes c ON s.class_id = c.class_id
+                    LEFT JOIN sections sec ON s.section_id = sec.section_id
                     WHERE MONTH(s.dob) = ? AND s.status = 1
                     ORDER BY DAY(s.dob), s.first_name");
 $stmt->bind_param('i', $month);
@@ -44,21 +45,27 @@ include __DIR__ . '/includes/header.php';
                         <th>Day</th>
                         <th>Student Name</th>
                         <th>Father Name</th>
-                        <th>Class</th>
+                        <th>Class / Section</th>
                         <th>Date of Birth</th>
+                        <th>Phone</th>
+                        <th>SMS</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (count($students) === 0): ?>
-                        <tr><td colspan="5" style="text-align:center; color:#6B7280; padding:30px;">No birthdays in this month.</td></tr>
+                        <tr><td colspan="7" style="text-align:center; color:#6B7280; padding:30px;">No birthdays in this month.</td></tr>
                     <?php endif; ?>
                     <?php foreach ($students as $st): ?>
                         <tr>
                             <td><span style="background:#FFE0EC; color:#EC4899; padding:3px 10px; border-radius:999px; font-weight:700; font-size:12px;"><?php echo date('d', strtotime($st['dob'])); ?></span></td>
                             <td><strong><?php echo e($st['first_name']); ?></strong></td>
                             <td><?php echo e($st['father_name'] ?? $st['last_name']); ?></td>
-                            <td><?php echo e($st['class_name'] ?? '-'); ?></td>
+                            <td><?php echo e($st['class_name'] ?? '-'); ?> / <?php echo e($st['section_name'] ?? '-'); ?></td>
                             <td><?php echo $st['dob'] ? date('d M Y', strtotime($st['dob'])) : '-'; ?></td>
+                            <td><?php echo e($st['phone'] ?? '-'); ?></td>
+                            <td>
+                                <a href="<?php echo BASE_URL; ?>new_message.php?title=<?php echo urlencode('Happy Birthday ' . $st['first_name']); ?>&message=<?php echo urlencode('Dear ' . $st['first_name'] . ', wishing you a very happy birthday!'); ?>" class="btn btn-info btn-xs" target="_blank"><i class="fa fa-envelope"></i> SMS</a>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>

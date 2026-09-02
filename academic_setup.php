@@ -3,10 +3,17 @@ define('HIIFI', true);
 require_once __DIR__ . '/config.php';
 require_login();
 
-$page_title = 'Manage Academics';
+$page_title = 'Academic Setup';
 
 $message = '';
 $error = '';
+
+$alert = '';
+$module = trim($_GET['module'] ?? '');
+if ($module !== '') {
+    $friendly = str_replace('_', ' ', ucwords($module));
+    $alert = "The \"$friendly\" module is coming soon in this release.";
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -16,10 +23,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($name === '') {
             $error = 'Class name is required.';
         } else {
-            $st2 = db_prepare("INSERT INTO classes (class_name) VALUES (?)");
-            $st2->bind_param('s', $name);
-            $st2->execute();
-            $message = "Class '$name' added!";
+            try {
+                $st2 = db_prepare("INSERT INTO classes (class_name) VALUES (?)");
+                $st2->bind_param('s', $name);
+                $st2->execute();
+                $message = "Class '$name' added!";
+            } catch (Throwable $e) {
+                $error = 'Add class failed: ' . $e->getMessage();
+            }
         }
     }
 
@@ -29,31 +40,117 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($class_id <= 0 || $sec === '') {
             $error = 'Class and section name are required.';
         } else {
-            $st2 = db_prepare("INSERT INTO sections (class_id, section_name) VALUES (?, ?)");
-            $st2->bind_param('is', $class_id, $sec);
-            $st2->execute();
-            $message = "Section '$sec' added!";
+            try {
+                $st2 = db_prepare("INSERT INTO sections (class_id, section_name) VALUES (?, ?)");
+                $st2->bind_param('is', $class_id, $sec);
+                $st2->execute();
+                $message = "Section '$sec' added!";
+            } catch (Throwable $e) {
+                $error = 'Add section failed: ' . $e->getMessage();
+            }
         }
     }
 }
 
 $classes = [];
-$res = db_query("SELECT * FROM classes ORDER BY class_id");
-while ($row = $res->fetch_assoc()) {
-    $sections = [];
-    $res2 = db_query("SELECT * FROM sections WHERE class_id={$row['class_id']} ORDER BY section_id");
-    while ($s = $res2->fetch_assoc()) { $sections[] = $s; }
-    $subjects_count = (int) (db_query("SELECT COUNT(*) c FROM subjects WHERE class_id={$row['class_id']}")->fetch_assoc()['c'] ?? 0);
-    $students_count = (int) (db_query("SELECT COUNT(*) c FROM students WHERE class_id={$row['class_id']} AND status=1")->fetch_assoc()['c'] ?? 0);
-    $row['sections'] = $sections;
-    $row['subjects_count'] = $subjects_count;
-    $row['students_count'] = $students_count;
-    $classes[] = $row;
-}
+try {
+    $res = db_query("SELECT * FROM classes ORDER BY class_id");
+    while ($row = $res->fetch_assoc()) {
+        $sections = [];
+        $res2 = db_query("SELECT * FROM sections WHERE class_id={$row['class_id']} ORDER BY section_id");
+        while ($s = $res2->fetch_assoc()) { $sections[] = $s; }
+        $subjects_count = (int) (db_query("SELECT COUNT(*) c FROM subjects WHERE class_id={$row['class_id']}")->fetch_assoc()['c'] ?? 0);
+        $students_count = (int) (db_query("SELECT COUNT(*) c FROM students WHERE class_id={$row['class_id']} AND status=1")->fetch_assoc()['c'] ?? 0);
+        $row['sections'] = $sections;
+        $row['subjects_count'] = $subjects_count;
+        $row['students_count'] = $students_count;
+        $classes[] = $row;
+    }
+} catch (Throwable $e) { $classes = []; }
+
+$cards = [
+    ['url' => 'manage_exams.php', 'icon' => 'fa fa-plus', 'title' => 'Manage Exams', 'desc' => 'Create exam terms and types for the current session.'],
+    ['module' => 'manage_subjects', 'icon' => 'fa fa-book', 'title' => 'Manage Subjects', 'desc' => 'Add and organize subjects offered by the school.'],
+    ['module' => 'class_subjects', 'icon' => 'fa fa-layer-group', 'title' => 'Class Subjects', 'desc' => 'Assign subjects to classes and sections.'],
+    ['module' => 'teacher_subjects', 'icon' => 'fa fa-chalkboard-teacher', 'title' => 'Teacher Subjects', 'desc' => 'Allocate subjects to teachers.'],
+    ['module' => 'award_list', 'icon' => 'fa fa-list', 'title' => 'Award List', 'desc' => 'Configure award lists and merit rules.'],
+    ['module' => 'grade_settings', 'icon' => 'fa fa-star', 'title' => 'Grade Settings', 'desc' => 'Define grade scales and mark ranges.'],
+    ['module' => 'academic_settings', 'icon' => 'fa fa-signature', 'title' => 'Academic Settings', 'desc' => 'Upload signatures and configure academic settings.'],
+    ['module' => 'class_sections', 'icon' => 'fa fa-users', 'title' => 'Class & Sections', 'desc' => 'Manage classes and sections for the branch.'],
+];
 
 include __DIR__ . '/includes/header.php';
 ?>
 <style>
+.page-title {
+    background: #2b2b36;
+    padding: 12px 20px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.page-title h3 {
+    color: #fff;
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+.page-subtitle {
+    color: #fff;
+    font-size: 12px;
+    opacity: 0.9;
+}
+.setup-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+a.aqib-card {
+    background: #fff;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid #E5E7EB;
+    box-shadow: 0 2px 8px rgba(16,24,40,0.06);
+    text-decoration: none;
+    color: #111;
+    display: block;
+    transition: all 0.2s ease;
+}
+a.aqib-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(16,24,40,0.10);
+    text-decoration: none;
+}
+.setup-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 10px;
+    color: #fff;
+    background: #ff9800;
+}
+.setup-title {
+    font-weight: 700;
+    margin-bottom: 6px;
+    font-size: 14px;
+}
+.setup-desc {
+    font-size: 12px;
+    color: #6b7280;
+    line-height: 1.3;
+}
+.crumb { font-size:13px; color:#6B7280; margin:6px 4px 14px; }
+.crumb a { color:#e67e22; text-decoration:none; }
+.crumb a:hover { text-decoration:underline; }
 .ac-card { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:16px; margin-bottom:14px; }
 .ac-head { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
 </style>
@@ -62,10 +159,34 @@ include __DIR__ . '/includes/header.php';
     <div class="container-fluid">
         <?php if ($message): ?><div class="alert alert-success"><?php echo e($message); ?></div><?php endif; ?>
         <?php if ($error): ?><div class="alert alert-danger"><?php echo e($error); ?></div><?php endif; ?>
+        <?php if ($alert): ?><div class="alert alert-warning"><?php echo e($alert); ?></div><?php endif; ?>
 
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 4px;">
-            <h3 style="font-size:18px; font-weight:800; color:#111827; margin:0;"><i class="fa fa-university"></i> Manage Academics</h3>
+        <div class="crumb"><a href="<?php echo BASE_URL; ?>dashboard.php">Dashboard</a> &nbsp;<i class="fa fa-angle-double-right"></i>&nbsp; <a href="<?php echo BASE_URL; ?>academic_setup.php">Academics</a> &nbsp;<i class="fa fa-angle-double-right"></i>&nbsp; Academic Setup</div>
+
+        <div class="page-title">
+            <h3><i class="fa fa-university"></i> Academic Setup</h3>
+            <div class="page-subtitle">All academic configuration pages in one place for new &amp; existing schools.</div>
         </div>
+
+        <div class="setup-grid">
+            <?php foreach ($cards as $card): ?>
+                <?php if (isset($card['url'])): ?>
+                    <a class="aqib-card" href="<?php echo BASE_URL . $card['url']; ?>">
+                        <div class="setup-icon"><i class="<?php echo $card['icon']; ?>"></i></div>
+                        <div class="setup-title"><?php echo e($card['title']); ?></div>
+                        <div class="setup-desc"><?php echo e($card['desc']); ?></div>
+                    </a>
+                <?php else: ?>
+                    <a class="aqib-card" href="<?php echo BASE_URL; ?>academic_setup.php?module=<?php echo e($card['module']); ?>">
+                        <div class="setup-icon"><i class="<?php echo $card['icon']; ?>"></i></div>
+                        <div class="setup-title"><?php echo e($card['title']); ?></div>
+                        <div class="setup-desc"><?php echo e($card['desc']); ?></div>
+                    </a>
+                <?php endif; ?>
+            <?php endforeach; ?>
+        </div>
+
+        <h4 style="font-size:16px; font-weight:800; color:#111827; margin:0 0 12px;"><i class="fa fa-users"></i> Class &amp; Sections</h4>
 
         <div class="row" style="margin-bottom:16px;">
             <div class="col-md-5">
@@ -111,7 +232,7 @@ include __DIR__ . '/includes/header.php';
             </div>
         <?php endforeach; ?>
         <?php if (count($classes) === 0): ?>
-            <div style="text-align:center; color:#6B7280; padding:40px;">No classes yet. Upar form se add karein.</div>
+            <div style="text-align:center; color:#6B7280; padding:40px;">No classes yet. Use the form above to add one.</div>
         <?php endif; ?>
     </div>
 </div>

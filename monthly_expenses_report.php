@@ -3,115 +3,201 @@ define('HIIFI', true);
 require_once __DIR__ . '/config.php';
 require_login();
 
-$page_title = 'Monthly Expense Report';
+$page_title = 'Monthly Expenses Report';
 
-$sel_month = (int) ($_GET['month'] ?? (int) date('m'));
-$sel_year  = (int) ($_GET['year'] ?? (int) date('Y'));
+// Filter defaults = current month
+$startDate = $_GET['start_date'] ?? date('Y-m-01');
+$endDate = $_GET['end_date'] ?? date('Y-m-t');
+$viewType = $_GET['view_type'] ?? 'expense';
+$subCat = $_GET['sub_cat'] ?? 'All';
+$userId = $_GET['user_id'] ?? 'All';
+
+$subsList = [];
+$res = db_query("SELECT expense_subs.*, expense_categories.name category_name
+                 FROM expense_subs
+                 LEFT JOIN expense_categories ON expense_subs.expense_id = expense_categories.id
+                 WHERE expense_subs.status=1 ORDER BY expense_subs.name");
+while ($row = $res->fetch_assoc()) { $subsList[] = $row; }
+
+$users = [];
+$res = db_query("SELECT user_id, full_name FROM users WHERE status=1 ORDER BY full_name");
+while ($row = $res->fetch_assoc()) { $users[] = $row; }
+
+$where = [];
+$params = [];
+$types = '';
+if ($startDate !== '') { $where[] = 'DATE(e.expense_date) >= ?'; $params[] = $startDate; $types .= 's'; }
+if ($endDate !== '') { $where[] = 'DATE(e.expense_date) <= ?'; $params[] = $endDate; $types .= 's'; }
+if ($subCat !== '' && $subCat !== 'All') { $where[] = 'e.sub_category_id = ?'; $params[] = (int)$subCat; $types .= 'i'; }
+if ($userId !== '' && $userId !== 'All') { $where[] = 'e.created_by = ?'; $params[] = (int)$userId; $types .= 'i'; }
+
+$sql = "SELECT e.*, c.name category_name, s.name sub_category_name, u.full_name added_by
+        FROM expenses e
+        LEFT JOIN expense_categories c ON e.category_id = c.id
+        LEFT JOIN expense_subs s ON e.sub_category_id = s.id
+        LEFT JOIN users u ON e.created_by = u.user_id";
+if (count($where) > 0) { $sql .= ' WHERE ' . implode(' AND ', $where); }
+$sql .= ' ORDER BY e.expense_date, e.expense_id';
 
 $expenses = [];
-$res = db_query("SELECT * FROM expenses WHERE MONTH(expense_date)=$sel_month AND YEAR(expense_date)=$sel_year ORDER BY expense_date");
+if (count($params) > 0) {
+    $st2 = db_prepare($sql);
+    $st2->bind_param($types, ...$params);
+    $st2->execute();
+    $res = $st2->get_result();
+} else {
+    $res = db_query($sql);
+}
 while ($row = $res->fetch_assoc()) { $expenses[] = $row; }
 
-$revenues = [];
-$res = db_query("SELECT r.*, h.head_name FROM revenues r LEFT JOIN revenue_heads h ON r.head_id=h.head_id WHERE MONTH(r.revenue_date)=$sel_month AND YEAR(r.revenue_date)=$sel_year ORDER BY r.revenue_date");
-while ($row = $res->fetch_assoc()) { $revenues[] = $row; }
+function isSalaryRow($row) {
+    foreach (['%salary%', '%salaries%', '%wages%'] as $pat) {
+        if (stripos($row['sub_category_name'] ?? '', trim($pat, '%')) !== false) return true;
+        if (stripos($row['category_name'] ?? '', trim($pat, '%')) !== false) return true;
+    }
+    return false;
+}
 
-$total_expense = 0;
-foreach ($expenses as $e) { $total_expense += (float) $e['amount']; }
-$total_revenue = 0;
-foreach ($revenues as $r) { $total_revenue += (float) $r['amount']; }
-$balance = $total_revenue - $total_expense;
+$excludeSalary = ($viewType !== 'expense_salary');
+$visible = [];
+foreach ($expenses as $e) {
+    if ($excludeSalary && isSalaryRow($e)) { continue; }
+    $visible[] = $e;
+}
 
-$byCategory = [];
-foreach ($expenses as $e) { $cat = $e['category'] ?: 'Other'; $byCategory[$cat] = ($byCategory[$cat] ?? 0) + (float) $e['amount']; }
+$total = 0.0;
+foreach ($visible as $e) { $total += (float) $e['amount']; }
 
 include __DIR__ . '/includes/header.php';
 ?>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.10.13/css/jquery.dataTables.min.css">
 <style>
-.search-bar-student { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:16px; margin-bottom:16px; }
-.analytics-cards { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
-.analytics-cards .ac { background:#fff; border:1px solid #E5E7EB; border-radius:12px; padding:14px; text-align:center; }
-.analytics-cards .ac .n { font-size:20px; font-weight:800; }
-.analytics-cards .ac .l { font-size:11.5px; color:#6B7280; }
-@media (max-width:900px){ .analytics-cards{ grid-template-columns:repeat(1,1fr);} }
+.page-header-section { margin-bottom:14px; }
+.page-header-section h2 { font-size:18px; font-weight:800; color:#111827; margin:0; }
+.record-count-badge { display:inline-block; font-size:11px; font-weight:700; color:#377DFF; background:#E9F2FF; border-radius:999px; padding:4px 10px; margin-left:8px; vertical-align:middle; }
+.breadcrumb-modern { display:flex; align-items:center; gap:8px; font-size:12.5px; color:#6B7280; margin:6px 0 0; padding:0; list-style:none; }
+.breadcrumb-modern a { color:#377DFF; text-decoration:none; }
+.breadcrumb-modern i { font-size:11px; color:#9CA3AF; }
+.filter-panel { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:16px; margin-bottom:16px; }
+.filter-panel h4 { font-size:14px; font-weight:800; color:#111827; margin:0 0 10px; }
+.table-container { background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:0 0 16px; overflow-x:auto; }
+.table-container h4 { font-size:15px; font-weight:800; color:#111827; margin:0; padding:14px 16px; border-bottom:2px solid #F3F4F6; }
+.dataTables_wrapper { padding: 0 12px 12px; }
+.total-amount-box { display:inline-flex; align-items:center; gap:8px; background:#FEF2F2; border:1px solid #FECACA; color:#DC2626; font-weight:800; font-size:14px; border-radius:12px; padding:10px 16px; margin:14px 16px 0; }
 </style>
 
 <div class="main-content">
     <div class="container-fluid">
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 4px;">
-            <h3 style="font-size:18px; font-weight:800; color:#111827; margin:0;"><i class="fa fa-bar-chart"></i> Monthly Report <span style="font-size:14px; color:#6B7280;">(<?php echo date('F Y', mktime(0,0,0,$sel_month,1,$sel_year)); ?>)</span></h3>
-            <a href="<?php echo BASE_URL; ?>manage_expenses.php" class="btn btn-primary" style="color:#fff;"><i class="fa fa-plus"></i> Add Expense</a>
+        <div class="page-header-section">
+            <h2><i class="fa fa-chart-line"></i> Monthly Expenses Report <span class="record-count-badge"><?php echo count($visible); ?> Records</span></h2>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb-modern">
+                    <li><a href="<?php echo BASE_URL; ?>dashboard.php"><i class="fa fa-home"></i> Dashboard</a></li>
+                    <li><i class="fa fa-angle-right"></i></li>
+                    <li><a href="<?php echo BASE_URL; ?>manage_expenses.php">Financial Management</a></li>
+                    <li><i class="fa fa-angle-right"></i></li>
+                    <li><span>Monthly Expenses Report</span></li>
+                </ol>
+            </nav>
         </div>
 
-        <form method="get" action="monthly_expenses_report.php" class="search-bar-student">
-            <div class="form-group col-md-2" style="margin-bottom:0;">
-                <label>Month</label>
-                <select name="month" class="form-control">
-                    <?php for ($m = 1; $m <= 12; $m++): ?>
-                        <option value="<?php echo $m; ?>" <?php echo $sel_month == $m ? 'selected' : ''; ?>><?php echo date('M', mktime(0,0,0,$m,1)); ?></option>
-                    <?php endfor; ?>
-                </select>
-            </div>
-            <div class="form-group col-md-2" style="margin-bottom:0;">
-                <label>Year</label>
-                <select name="year" class="form-control">
-                    <?php for ($y = date('Y'); $y >= date('Y') - 3; $y--): ?>
-                        <option value="<?php echo $y; ?>" <?php echo $sel_year == $y ? 'selected' : ''; ?>><?php echo $y; ?></option>
-                    <?php endfor; ?>
-                </select>
-            </div>
-            <div class="form-group col-md-2" style="margin-bottom:0;">
-                <button type="submit" class="btn btn-primary" style="width:100%;">Load</button>
-            </div>
-        </form>
-
-        <div class="analytics-cards">
-            <div class="ac"><div class="n" style="color:#16A34A;"><?php echo number_format($total_revenue, 2); ?></div><div class="l">Total Revenue</div></div>
-            <div class="ac"><div class="n" style="color:#DC2626;"><?php echo number_format($total_expense, 2); ?></div><div class="l">Total Expenses</div></div>
-            <div class="ac"><div class="n" style="color:<?php echo $balance >= 0 ? '#FF7A1B' : '#DC2626'; ?>;"><?php echo number_format($balance, 2); ?></div><div class="l">Net Balance</div></div>
+        <div class="filter-panel">
+            <h4><i class="fa fa-filter"></i> Filter Expenses</h4>
+            <form action="monthly_expenses_report.php" method="get">
+                <div class="row">
+                    <div class="col-md-3 col-xs-12">
+                        <div class="form-group">
+                            <label class="required"><i class="fa fa-calendar"></i> From Date</label>
+                            <input type="date" name="start_date" class="form-control" value="<?php echo e($startDate); ?>">
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-xs-12">
+                        <div class="form-group">
+                            <label class="required"><i class="fa fa-calendar"></i> To Date</label>
+                            <input type="date" name="end_date" class="form-control" value="<?php echo e($endDate); ?>">
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-xs-12">
+                        <div class="form-group">
+                            <label><i class="fa fa-eye"></i> View</label>
+                            <select name="view_type" class="form-control">
+                                <option value="expense" <?php echo $viewType === 'expense' ? 'selected' : ''; ?>>Show Expense</option>
+                                <option value="expense_salary" <?php echo $viewType === 'expense_salary' ? 'selected' : ''; ?>>Show Expense with Salary</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-xs-12">
+                        <div class="form-group">
+                            <label><i class="fa fa-tag"></i> Sub Category</label>
+                            <select name="sub_cat" class="form-control">
+                                <option value="All">All Sub Categories</option>
+                                <?php foreach ($subsList as $s): ?>
+                                    <option value="<?php echo $s['id']; ?>" <?php echo $subCat === (string)$s['id'] ? 'selected' : ''; ?>><?php echo e($s['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-2 col-xs-12">
+                        <div class="form-group">
+                            <label>&nbsp;</label>
+                            <button type="submit" class="btn btn-primary btn-block"><i class="fa fa-search"></i> Search</button>
+                        </div>
+                    </div>
+                </div>
+            </form>
         </div>
 
-        <div class="row">
-            <div class="col-md-5">
-                <div style="overflow-x:auto; background:#fff; border:1px solid #E5E7EB; border-radius:14px;">
-                    <h4 style="font-size:15px; font-weight:800; padding:14px 16px; margin:0; border-bottom:1px solid #F3F4F6;">Expenses by Category</h4>
-                    <table class="table table-striped table-bordered" style="width:100%; background:#fff; margin-bottom:0;">
-                        <thead><tr><th>Category</th><th>Amount</th></tr></thead>
-                        <tbody>
-                            <?php if (count($byCategory) === 0): ?><tr><td colspan="2" style="text-align:center; color:#6B7280; padding:25px;">No expenses this month.</td></tr><?php endif; ?>
-                            <?php foreach ($byCategory as $cat => $amt): ?>
-                                <tr>
-                                    <td><strong><?php echo e($cat); ?></strong></td>
-                                    <td style="color:#DC2626; font-weight:700;"><?php echo number_format($amt, 2); ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div class="col-md-7">
-                <div style="overflow-x:auto; background:#fff; border:1px solid #E5E7EB; border-radius:14px; margin-bottom:14px;">
-                    <h4 style="font-size:15px; font-weight:800; padding:14px 16px; margin:0; border-bottom:1px solid #F3F4F6;">Revenue Details</h4>
-                    <table class="table table-striped table-bordered" style="width:100%; background:#fff; margin-bottom:0;">
-                        <thead><tr><th>#</th><th>Description</th><th>Head</th><th>Amount</th><th>Date</th></tr></thead>
-                        <tbody>
-                            <?php if (count($revenues) === 0): ?><tr><td colspan="5" style="text-align:center; color:#6B7280; padding:25px;">No revenue this month.</td></tr><?php endif; ?>
-                            <?php foreach ($revenues as $rv): ?>
-                                <tr>
-                                    <td><?php echo $rv['revenue_id']; ?></td>
-                                    <td><strong><?php echo e($rv['description']); ?></strong></td>
-                                    <td><?php echo e($rv['head_name'] ?? '-'); ?></td>
-                                    <td style="color:#16A34A; font-weight:700;"><?php echo number_format($rv['amount'], 2); ?></td>
-                                    <td><?php echo date('d M Y', strtotime($rv['revenue_date'])); ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+        <div class="table-container">
+            <h4><i class="fa fa-list"></i> Expense Records</h4>
+            <table id="datatable" class="table table-striped table-bordered" style="width:100%; background:#fff; margin-bottom:0;">
+                <thead>
+                    <tr>
+                        <th width="5%">S.No</th>
+                        <th width="15%">Category</th>
+                        <th width="15%">Sub Category</th>
+                        <th width="28%">Details</th>
+                        <th width="12%">Date</th>
+                        <th width="12%" style="text-align:right;">Amount (Rs.)</th>
+                        <th width="13%">Added By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (count($visible) === 0): ?>
+                        <tr><td colspan="7" class="dataTables_empty">No data available in table</td></tr>
+                    <?php endif; ?>
+                    <?php $i = 1; foreach ($visible as $e): ?>
+                        <tr>
+                            <td><?php echo $i++; ?></td>
+                            <td><strong><?php echo e($e['category_name'] ?: '-'); ?></strong></td>
+                            <td><?php echo e($e['sub_category_name'] ?: '-'); ?></td>
+                            <td><?php echo e($e['narration'] ?: $e['title']); ?></td>
+                            <td><?php echo $e['expense_date'] ? date('d M Y', strtotime($e['expense_date'])) : '-'; ?></td>
+                            <td style="text-align:right; color:#DC2626; font-weight:700;"><?php echo number_format($e['amount'], 2); ?></td>
+                            <td><?php echo e($e['added_by'] ?: '-'); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+                <tfoot>
+                    <tr style="background-color:#f8f9fa; font-weight:bold;">
+                        <td colspan="5" style="text-align:right; padding:15px;">Grand Total:</td>
+                        <td style="text-align:right; padding:15px; font-size:16px; color:#e74c3c;"><?php echo get_setting('currency_symbol', 'Rs.') . ' ' . number_format($total, 2); ?></td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+            <div class="total-amount-box">
+                <i class="fa fa-calculator"></i>
+                <span>Grand Total: <?php echo get_setting('currency_symbol', 'Rs.') . ' ' . number_format($total, 2); ?></span>
             </div>
         </div>
     </div>
 </div>
+
+<script src="https://cdn.datatables.net/1.10.13/js/jquery.dataTables.min.js"></script>
+<script>
+$(document).ready(function(){
+    $('#datatable').DataTable({ order: [], pageLength: 10 });
+});
+</script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

@@ -6,6 +6,7 @@ require_login();
 $page_title = 'Students Cards';
 
 $sel_class = (int) ($_GET['class_id'] ?? 0);
+$auto_print = (int) ($_GET['print'] ?? 0);
 
 $classes = [];
 $res = db_query("SELECT class_id, class_name FROM classes WHERE status=1 ORDER BY class_name");
@@ -13,7 +14,10 @@ while ($row = $res->fetch_assoc()) { $classes[] = $row; }
 
 $students = [];
 if ($sel_class > 0) {
-    $res = db_query("SELECT s.*, c.class_name FROM students s LEFT JOIN classes c ON s.class_id=c.class_id WHERE s.class_id=$sel_class AND s.status=1 ORDER BY s.first_name");
+    $res = db_query("SELECT s.*, c.class_name, sec.section_name FROM students s
+                     LEFT JOIN classes c ON s.class_id=c.class_id
+                     LEFT JOIN sections sec ON s.section_id=sec.section_id
+                     WHERE s.class_id=$sel_class AND s.status=1 ORDER BY s.first_name");
     while ($row = $res->fetch_assoc()) { $students[] = $row; }
 }
 
@@ -68,20 +72,24 @@ include __DIR__ . '/includes/header.php';
                         </div>
                         <div class="body">
                             <div style="display:flex; gap:12px; align-items:center; margin-bottom:10px;">
+                            <?php if (!empty($st['photo'])): ?>
+                                <img src="<?php echo BASE_URL; ?>uploads/students/<?php echo e($st['photo']); ?>" alt="" style="width:64px;height:64px;border-radius:999px;object-fit:cover;border:2px solid #FF7A1B;">
+                            <?php else: ?>
                                 <div class="avatar-big"><?php echo strtoupper(substr($st['first_name'], 0, 1)); ?></div>
-                                <div>
-                                    <div style="font-weight:800; font-size:14px; color:#111827;"><?php echo e($st['first_name']); ?></div>
-                                    <div style="font-size:11.5px; color:#6B7280;"><?php echo e($st['father_name'] ?? ''); ?></div>
-                                </div>
+                            <?php endif; ?>
+                            <div>
+                                <div style="font-weight:800; font-size:14px; color:#111827;"><?php echo e($st['first_name']); ?></div>
+                                <div style="font-size:11.5px; color:#6B7280;"><?php echo e($st['father_name'] ?? ''); ?></div>
                             </div>
-                            <table>
-                                <tr><td class="lbl">GR No</td><td><strong><?php echo e($st['roll_no'] ?? $st['student_id']); ?></strong></td></tr>
-                                <tr><td class="lbl">Class</td><td><?php echo e($st['class_name'] ?? ''); ?></td></tr>
-                                <tr><td class="lbl">Section</td><td><?php echo $st['section_id'] ?? ''; ?></td></tr>
-                                <tr><td class="lbl">DOB</td><td><?php echo $st['dob'] ? date('d M Y', strtotime($st['dob'])) : ''; ?></td></tr>
-                                <tr><td class="lbl">Phone</td><td><?php echo e($st['phone'] ?? ''); ?></td></tr>
-                                <tr><td class="lbl">Session</td><td><?php echo e(get_setting('session_year') ?: ''); ?></td></tr>
-                            </table>
+                        </div>
+                        <table>
+                            <tr><td class="lbl">GR No</td><td><strong><?php echo e($st['gr_no'] ?? ($st['roll_no'] ?? $st['student_id'])); ?></strong></td></tr>
+                            <tr><td class="lbl">Class</td><td><?php echo e($st['class_name'] ?? ''); ?></td></tr>
+                            <tr><td class="lbl">Section</td><td><?php echo e($st['section_name'] ?? $st['section_id']); ?></td></tr>
+                            <tr><td class="lbl">DOB</td><td><?php echo $st['dob'] ? date('d M Y', strtotime($st['dob'])) : ''; ?></td></tr>
+                            <tr><td class="lbl">Phone</td><td><?php echo e($st['phone'] ?? ''); ?></td></tr>
+                            <tr><td class="lbl">Session</td><td><?php echo e($st['session'] ?? get_setting('session_year') ?? ''); ?></td></tr>
+                        </table>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -89,5 +97,11 @@ include __DIR__ . '/includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<?php if ($auto_print === 1): ?>
+<script>
+window.onload = function(){ setTimeout(function(){ window.print(); }, 400); };
+</script>
+<?php endif; ?>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

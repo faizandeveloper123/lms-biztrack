@@ -311,3 +311,144 @@
 </div>
 
         <div class="right_col" role="main" style="min-height: 733px;">
+
+<link href="<?php echo BASE_URL; ?>assets/plugins/select2/select2.min.css" rel="stylesheet">
+<script src="<?php echo BASE_URL; ?>assets/js/jquery.min.js"></script>
+<script src="<?php echo BASE_URL; ?>assets/js/bootstrap.min.js"></script>
+<script src="<?php echo BASE_URL; ?>assets/plugins/select2/select2.min.js"></script>
+<script src="<?php echo BASE_URL; ?>assets/js/app_shared.js"></script>
+<?php
+$topSchoolName = get_setting('school_name', 'HIIFI LMS');
+$topSession    = get_setting('session_year', '2026-2027');
+$topSmsUsed    = (int) get_setting('whatsapp_sms_used', 0);
+$topSmsLimit   = (int) get_setting('whatsapp_sms_limit', 10000);
+$topSmsPct     = $topSmsLimit > 0 ? min(100, round($topSmsUsed / $topSmsLimit * 100)) : 0;
+$topNewComp    = (int) (db_query("SELECT COUNT(*) c FROM complaints WHERE status IN ('new','open')")->fetch_assoc()['c'] ?? 0);
+$topUserName   = e($_SESSION['user_name'] ?? 'Admin');
+?>
+<style>
+    .hiifi-topbar { display: flex; align-items: center; gap: 12px; padding: 9px 16px; background: #fff; border-bottom: 1px solid #e5e7eb; position: sticky; top: 0; z-index: 900; flex-wrap: nowrap; }
+    .hiifi-topbar .tb-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .hiifi-topbar .tb-brand img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 1.5px solid #ff8c00; }
+    .hiifi-topbar .tb-brand .tb-txt { display: flex; flex-direction: column; line-height: 1.1; min-width: 0; }
+    .hiifi-topbar .tb-brand .tb-txt b { font-size: 13px; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hiifi-topbar .tb-brand .tb-txt small { font-size: 10.5px; color: #64748b; }
+    .hiifi-topbar .tb-hamburger { background: none; border: none; font-size: 18px; color: #475569; cursor: pointer; padding: 6px; }
+    .hiifi-topbar .tb-search { position: relative; flex: 1 1 240px; max-width: 430px; }
+    .hiifi-topbar .tb-search input { width: 100%; border: 1px solid #e2e8f0; border-radius: 999px; padding: 7px 14px 7px 34px; font-size: 12.5px; outline: none; background: #f8fafc; }
+    .hiifi-topbar .tb-search input:focus { border-color: #377dff; background: #fff; }
+    .hiifi-topbar .tb-search > i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 13px; }
+    .tb-search-results { position: absolute; top: 108%; left: 0; right: 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 12px 30px rgba(0,0,0,.12); max-height: 320px; overflow: auto; display: none; z-index: 1200; }
+    .tb-search-results a { display: flex; gap: 10px; padding: 9px 12px; text-decoration: none; color: #0f172a; border-bottom: 1px solid #f1f5f9; }
+    .tb-search-results a:hover { background: #f8fafc; }
+    .tb-search-results .sr-ava { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg,#377dff,#7c3aed); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+    .tb-search-results .sr-meta { overflow: hidden; }
+    .tb-search-results .sr-meta b { display: block; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tb-search-results .sr-meta span { font-size: 11px; color: #64748b; }
+    .tb-search-results .sr-empty { padding: 14px; font-size: 12.5px; color: #64748b; text-align: center; }
+    .hiifi-topbar .tb-msgs, .hiifi-topbar .tb-acc { position: relative; }
+    .hiifi-topbar .tb-btn { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 600; color: #334155; cursor: pointer; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .hiifi-topbar .tb-btn:hover { background: #f1f5f9; }
+    .hiifi-topbar .tb-bell { position: relative; }
+    .hiifi-topbar .tb-bell .dot { position: absolute; top: 2px; right: 2px; background: #ef4444; border-radius: 50%; min-width: 14px; height: 14px; font-size: 9px; color: #fff; display: flex; align-items: center; justify-content: center; padding: 0 3px; }
+    .hiifi-dd { position: absolute; top: 112%; right: 0; background: #fff; border: 1px solid #eef2f7; border-radius: 12px; box-shadow: 0 14px 34px rgba(0,0,0,.14); min-width: 240px; padding: 8px; display: none; z-index: 1300; }
+    .hiifi-dd:before { content: ''; position: absolute; top: -6px; right: 18px; width: 12px; height: 12px; background: #fff; border-left: 1px solid #eef2f7; border-top: 1px solid #eef2f7; transform: rotate(45deg); }
+    .hiifi-dd .dd-h { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; padding: 6px 10px; letter-spacing: .4px; }
+    .hiifi-dd a { display: flex; align-items: center; gap: 9px; padding: 8px 10px; font-size: 12.5px; color: #334155; text-decoration: none; border-radius: 8px; }
+    .hiifi-dd a:hover { background: #f1f5f9; }
+    .hiifi-dd a i { width: 16px; text-align: center; color: #64748b; }
+    .hiifi-dd .smsbar { padding: 4px 10px 10px; }
+    .hiifi-dd .smsbar .prog { height: 6px; background: #eef2f7; border-radius: 99px; overflow: hidden; margin: 6px 0 4px; }
+    .hiifi-dd .smsbar .prog > i { display: block; height: 100%; background: linear-gradient(90deg,#377dff,#7c3aed); }
+    .hiifi-dd .smsbar span { font-size: 11px; color: #64748b; }
+    @media (max-width: 768px) { .hiifi-topbar .tb-brand .tb-txt, .hiifi-topbar .tb-msgs { display: none; } }
+</style>
+
+<div class="hiifi-topbar">
+    <button type="button" class="tb-hamburger" onclick="document.body.classList.toggle('sidebar-collapsed');document.body.classList.toggle('sidebar-expanded')" title="Toggle sidebar"><i class="fa fa-bars"></i></button>
+    <div class="tb-brand">
+        <img src="<?php echo BASE_URL; ?>assets/img/logo.jpg" alt="Logo">
+        <div class="tb-txt">
+            <b><?php echo e($topSchoolName); ?></b>
+            <small>Session <?php echo e($topSession); ?></small>
+        </div>
+    </div>
+    <div class="tb-search">
+        <i class="fa fa-search"></i>
+        <input type="text" id="tbSearch" placeholder="Search student by name, GR No or cell..." autocomplete="off">
+        <div class="tb-search-results" id="tbSearchRes"></div>
+    </div>
+    <div class="tb-msgs">
+        <button type="button" class="tb-btn" onclick="var d=document.getElementById('smsdd');d.style.display=d.style.display==='block'?'none':'block'"><i class="fa fa-signal"></i> SMS Usage</button>
+        <div class="hiifi-dd" id="smsdd" style="right:0">
+            <div class="smsbar">
+                <div class="dd-h">WhatsApp SMS Stared</div>
+                <div class="prog"><i style="width:<?php echo $topSmsPct; ?>%"></i></div>
+                <span><?php echo $topSmsUsed; ?> / <?php echo $topSmsLimit; ?> used this month</span>
+            </div>
+            <a href="<?php echo BASE_URL; ?>messages_history.php"><i class="fa fa-envelope-o"></i> View Messages History</a>
+            <a href="<?php echo BASE_URL; ?>whatsapp_setting.php"><i class="fa fa-cog"></i> SMS Settings</a>
+        </div>
+    </div>
+    <div class="tb-bell">
+        <button type="button" class="tb-btn" onclick="var d=document.getElementById('notifydd');d.style.display=d.style.display==='block'?'none':'block'" style="padding:6px 9px;"><i class="fa fa-bell-o"></i><?php if ($topNewComp > 0): ?><span class="dot"><?php echo $topNewComp; ?></span><?php endif; ?></button>
+        <div class="hiifi-dd" id="notifydd">
+            <div class="dd-h">Notifications</div>
+            <a href="<?php echo BASE_URL; ?>manage_complaint.php"><i class="fa fa-warning"></i> <?php echo $topNewComp; ?> open complaint<?php echo $topNewComp === 1 ? '' : 's'; ?></a>
+            <a href="<?php echo BASE_URL; ?>customer_tickets.php"><i class="fa fa-life-ring"></i> Support tickets</a>
+            <a href="<?php echo BASE_URL; ?>student_inquiry.php"><i class="fa fa-user-plus"></i> Admission inquiries</a>
+        </div>
+    </div>
+    <div class="tb-acc">
+        <button type="button" class="tb-btn" onclick="var d=document.getElementById('accdd');d.style.display=d.style.display==='block'?'none':'block'"><i class="fa fa-user-circle" style="font-size:15px; color:#377dff;"></i> <?php echo $topUserName; ?> <i class="fa fa-caret-down"></i></button>
+        <div class="hiifi-dd" id="accdd">
+            <div class="dd-h">Account</div>
+            <a href="<?php echo BASE_URL; ?>update_profile.php"><i class="fa fa-user"></i> Profile</a>
+            <a href="<?php echo BASE_URL; ?>customer_tickets.php"><i class="fa fa-life-ring"></i> Support Tickets</a>
+            <a href="<?php echo BASE_URL; ?>monthly_invoices.php"><i class="fa fa-file-text-o"></i> Invoices</a>
+            <a href="<?php echo BASE_URL; ?>staff_security.php"><i class="fa fa-shield"></i> Security</a>
+            <a href="<?php echo BASE_URL; ?>update_pswd.php"><i class="fa fa-key"></i> Change Password</a>
+            <a href="<?php echo BASE_URL; ?>logout.php" onclick="localStorage.clear()"><i class="fa fa-sign-out"></i> Logout</a>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('click', function (e) {
+    ['smsdd', 'notifydd', 'accdd'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el && !e.target.closest('.tb-msgs') && !e.target.closest('.tb-bell') && !e.target.closest('.tb-acc')) el.style.display = 'none';
+    });
+});
+(function () {
+    var inp = document.getElementById('tbSearch'), box = document.getElementById('tbSearchRes'), timer = null;
+    if (!inp) return;
+    inp.addEventListener('input', function () {
+        clearTimeout(timer);
+        var q = inp.value.trim();
+        if (q.length < 2) { box.style.display = 'none'; return; }
+        timer = setTimeout(function () {
+            eduGet(HIIFI_BASE + 'live_search_students.php?term=' + encodeURIComponent(q), function (data) {
+                box.innerHTML = '';
+                if (!data || !data.length) {
+                    box.innerHTML = '<div class="sr-empty">No students found</div>';
+                } else {
+                    data.forEach(function (s) {
+                        var a = document.createElement('a');
+                        a.href = HIIFI_BASE + 'manage_students.php?student_id=' + s.id;
+                        var av = document.createElement('div'); av.className = 'sr-ava'; av.textContent = (s.name || '?').charAt(0).toUpperCase() + (s.father ? s.father.charAt(0) : '');
+                        var meta = document.createElement('div'); meta.className = 'sr-meta';
+                        var b = document.createElement('b'); b.textContent = s.name + ' (' + s.gr + ')';
+                        var sp = document.createElement('span'); sp.textContent = s.class_sec;
+                        meta.appendChild(b); meta.appendChild(sp);
+                        a.appendChild(av); a.appendChild(meta);
+                        box.appendChild(a);
+                    });
+                }
+                box.style.display = 'block';
+            });
+        }, 220);
+    });
+    document.addEventListener('click', function (e) { if (!e.target.closest('.tb-search')) box.style.display = 'none'; });
+})();
+</script>
