@@ -6,10 +6,10 @@
 <script src="<?php echo BASE_URL; ?>assets/js/jquery.sparkline.min.js"></script>
 <script>
 (function(){
-    var collapsed = localStorage.getItem('sb_collapsed');
-    if (collapsed === null) { document.body.className = 'sidebar-expanded'; localStorage.setItem('sb_collapsed', '0'); }
-    else if (collapsed === '1') { document.body.className = 'sidebar-collapsed'; }
-    else { document.body.className = 'sidebar-expanded'; }
+    // The shell now uses the expanded Gentelella-blue sidebar by default.
+    // Always show expanded on load so any previously stored collapsed
+    // preference cannot override the new theme.
+    document.body.className = 'sidebar-expanded';
 })();
 document.addEventListener('dblclick', function(e){
     if (e.target.closest('#sidebar-menu, .sidebar-logo, .left_col')) {
