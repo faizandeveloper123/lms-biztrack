@@ -43,6 +43,18 @@ try { db_query("CREATE TABLE IF NOT EXISTS document_titles (
 
 try { db_query("ALTER TABLE students ADD COLUMN IF NOT EXISTS family_code VARCHAR(50) DEFAULT NULL"); } catch (Throwable $ex) {}
 
+// Per-student fee plan (Step 2 of wizard)
+try { db_query("CREATE TABLE IF NOT EXISTS student_fee_plan (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT NOT NULL,
+    head_id INT DEFAULT NULL,
+    head_name VARCHAR(191) DEFAULT NULL,
+    amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+    discount DECIMAL(12,2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY (student_id)
+) ENGINE=InnoDB"); } catch (Throwable $ex) {}
+
 // Seed default lookup values (only if empty)
 function seed_if_empty($table, $nameCol, $values) {
     $c = db_query("SELECT COUNT(*) c FROM `$table`")->fetch_assoc()['c'];
@@ -85,6 +97,34 @@ $sessions = [];
 for ($y = 2018; $y <= 2030; $y++) { $sessions[] = $y . '-' . substr($y + 1, -2); }
 $cur_session = get_setting('session_year', '2026-2027');
 if (!in_array($cur_session, $sessions, true)) { array_unshift($sessions, $cur_session); }
+
+// 3-step wizard state
+$step = isset($_GET['step']) ? $_GET['step'] : 'info';
+if (!in_array($step, ['info', 'fee', 'finish'], true)) { $step = 'info'; }
+$stid = isset($_GET['student_id']) ? (int) $_GET['student_id'] : 0;
+
+// Step 2 (Fee Plan) POST: save per-student fee plan, then advance to Finish
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_fee_plan'])) {
+    $sid = (int) ($_POST['student_id'] ?? 0);
+    if ($sid > 0) {
+        $st = db_prepare('DELETE FROM student_fee_plan WHERE student_id = ?');
+        $st->bind_param('i', $sid);
+        $st->execute();
+        $heads = isset($_POST['heads']) ? $_POST['heads'] : [];
+        $ins = db_prepare('INSERT INTO student_fee_plan (student_id, head_id, head_name, amount, discount) VALUES (?, ?, ?, ?, ?)');
+        foreach ((array) $heads as $head_id => $row) {
+            $hname = trim($_POST['head_names'][$head_id] ?? '');
+            $amt = (float) ($_POST['amounts'][$head_id] ?? 0);
+            $disc = (float) ($_POST['discounts'][$head_id] ?? 0);
+            $ins->bind_param('iisdd', $sid, $head_id, $hname, $amt, $disc);
+            $ins->execute();
+        }
+        $ins->close();
+        header('Location: ' . BASE_URL . 'add_student.php?step=finish&student_id=' . $sid);
+        exit;
+    }
+}
+
 
 // -------- POST: Save Student --------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'AddAdmission') {
@@ -252,13 +292,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'AddAd
                     $docInsert->close();
                 }
 
-                // Redirect as per real site behaviour (to profile/manage students)
-                $mode = $_POST['redirect_mode'] ?? 'profile';
-                if ($mode === 'manage') {
-                    header('Location: ' . BASE_URL . 'manage_students.php?student_id=' . $studentId);
-                    exit;
-                }
-                $message = 'Student added successfully! GR No: ' . $gr;
+                // 3-step wizard: after basic info is saved, advance to Step 2 (Fee Plan)
+                header('Location: ' . BASE_URL . 'add_student.php?step=fee&student_id=' . $studentId);
+                exit;
             }
         } catch (Exception $ex) {
             $error = 'Error: ' . $ex->getMessage();
@@ -312,7 +348,7 @@ include __DIR__ . '/includes/header.php';
 .photo-stage .photo-placeholder small { font-size: 11px; color: #F59E0B; font-weight: 700; }
 .photo-stage .photo-placeholder em { font-style: normal; font-size: 10px; color: #B0B9C3; letter-spacing: .3px; }
 .photo-stage img { position: relative; max-width: none; }
-#image { width: 100%; height: 100%; object-fit: cover; transform-origin: center center; }
+#image { width: 100%; height: 100%; object-fit: contain; transform-origin: center center; }
 .photo-stage img#image { position: absolute; inset: 0; cursor: grab; }
 .photo-stage img#image.dragging { cursor: grabbing; }
 .photo-stage .photo-stage-hint { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.45); color: #fff; font-size: 10.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap; pointer-events: none; text-align: center; }
@@ -374,16 +410,24 @@ include __DIR__ . '/includes/header.php';
 
             <!-- Step Wizard -->
             <div class="step-wizard" id="stepWizard">
-                <div class="step-wizard-item active" data-step="student-info">
+                <div class="step-wizard-item <?php echo $step === 'fee' || $step === 'finish' ? '' : 'active'; ?>" data-step="student-info">
                     <div class="step-circle">1</div>
                     <div class="step-label">Student Info</div>
                 </div>
                 <div class="step-wizard-line"></div>
-                <div class="step-wizard-item" data-step="fee-plan">
+                <div class="step-wizard-item <?php echo $step === 'fee' ? 'active' : ''; ?>" data-step="fee-plan">
                     <div class="step-circle">2</div>
                     <div class="step-label">Fee Plan</div>
                 </div>
+                <div class="step-wizard-line"></div>
+                <div class="step-wizard-item <?php echo $step === 'finish' ? 'active' : ''; ?>" data-step="finish">
+                    <div class="step-circle">3</div>
+                    <div class="step-label">Finish</div>
+                </div>
             </div>
+            <style>
+            .step-wizard-item.disabled-step { opacity:.55; pointer-events:none; }
+            </style>
 
             <?php if ($message): ?>
                 <div class="alert alert-success" style="margin-top:12px;"><?php echo e($message); ?></div>
@@ -394,6 +438,8 @@ include __DIR__ . '/includes/header.php';
 
             <div class="tab-content" id="studentTabsContent" style="margin-top:8px;">
                 <div class="tab-pane active" id="add-single">
+
+                    <?php if ($step === 'info'): ?>
 
                     <!-- Icon Tabs -->
                     <ul class="icon-tabs" id="studentWizardTabs">
@@ -829,10 +875,117 @@ include __DIR__ . '/includes/header.php';
                             <div class="mandatory-note">* Marked fields are mandatory</div>
                             <div class="wizard-actions-buttons">
                                 <button type="button" class="wizard-btn" id="btnCancel">Cancel</button>
-                                <button type="button" class="wizard-btn wizard-btn-primary" id="btnSaveStudent">Save Student</button>
+                                <button type="button" class="wizard-btn wizard-btn-primary" id="btnSaveStudent">Save &amp; Next</button>
                             </div>
                         </div>
                     </form>
+
+                    <?php elseif ($step === 'fee'): ?>
+
+                    <?php
+                    $feeHeads = lookup_rows("SELECT head_id, head_name, amount FROM fee_heads WHERE status=1 ORDER BY head_id");
+                    $numHeads = count($feeHeads);
+                    $feeTotal = 0;
+                    foreach ($feeHeads as $fh) { $feeTotal += (float) $fh['amount']; }
+                    ?>
+                    <form id="feePlanForm" action="add_student.php?step=fee&student_id=<?php echo (int) $stid; ?>" method="post">
+                        <input type="hidden" name="save_fee_plan" value="1">
+                        <input type="hidden" name="student_id" value="<?php echo (int) $stid; ?>">
+                        <div style="background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:20px;">
+                            <div class="wizard-section-title"><span>Fee Plan</span></div>
+                            <p style="font-size:13px; color:#64748B; margin:6px 0 16px;">
+                                Set the monthly fee heads and amounts for this student. Adjust as needed, then click <strong>Save Fee Plan</strong> to continue.
+                            </p>
+                            <?php if ($numHeads > 0): ?>
+                                <div class="table-responsive">
+                                    <table class="table" style="margin:0; min-width:480px;">
+                                        <thead>
+                                            <tr>
+                                                <th style="font-size:12px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">#</th>
+                                                <th style="font-size:12px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">Fee Head</th>
+                                                <th style="font-size:12px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">Amount</th>
+                                                <th style="font-size:12px; text-transform:uppercase; color:#8A99A8; letter-spacing:.4px; padding:8px 12px;">Discount</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php $i = 1; foreach ($feeHeads as $fh): ?>
+                                            <tr>
+                                                <td style="padding:8px 12px; color:#8A99A8;"><?php echo $i++; ?></td>
+                                                <td style="padding:8px 12px; font-weight:600; color:#2A3F54;">
+                                                    <?php echo e($fh['head_name']); ?>
+                                                    <input type="hidden" name="head_names[<?php echo (int) $fh['head_id']; ?>]" value="<?php echo e($fh['head_name']); ?>">
+                                                </td>
+                                                <td style="padding:8px 12px;">
+                                                    <input type="checkbox" name="heads[<?php echo (int) $fh['head_id']; ?>]" value="1" checked style="display:none;">
+                                                    <input type="number" step="0.01" min="0" name="amounts[<?php echo (int) $fh['head_id']; ?>]" value="<?php echo e($fh['amount']); ?>" class="form-control fee-amount" style="width:130px; display:inline-block;">
+                                                </td>
+                                                <td style="padding:8px 12px;">
+                                                    <input type="number" step="0.01" min="0" name="discounts[<?php echo (int) $fh['head_id']; ?>]" value="0" class="form-control fee-discount" style="width:110px; display:inline-block;">
+                                                </td>
+                                            </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                        <tfoot>
+                                            <tr>
+                                                <td colspan="2" style="padding:10px 12px; text-align:right; font-weight:700; color:#2A3F54;">Total</td>
+                                                <td style="padding:10px 12px; font-weight:800; color:#FF7A1B;" id="feePlanTotal"><?php echo number_format($feeTotal, 2); ?></td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            <?php else: ?>
+                                <div style="text-align:center; padding:40px 20px; color:#95A5A6;">
+                                    <i class="fa fa-money" style="font-size:40px; color:#D5DBDB; display:block; margin-bottom:10px;"></i>
+                                    No active fee heads found. Add fee heads in <a href="update_fee_settings.php">Fee Settings</a>.
+                                </div>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="wizard-actions-bar" style="margin-top:14px;">
+                            <div class="mandatory-note">Adjust the fee heads as required</div>
+                            <div class="wizard-actions-buttons">
+                                <a href="<?php echo BASE_URL; ?>manage_students.php" class="wizard-btn" id="btnCancelFee">Skip</a>
+                                <button type="submit" class="wizard-btn wizard-btn-primary" id="btnSaveFeePlan"><i class="fa fa-money"></i> Save Fee Plan</button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <?php else: ?>
+
+                    <?php
+                    $stu = null;
+                    if ($stid > 0) {
+                        $st2 = db_prepare("SELECT student_id, gr_no, first_name, last_name, class_id, section_id FROM students WHERE student_id=?");
+                        $st2->bind_param('i', $stid);
+                        $st2->execute();
+                        $stu = $st2->get_result()->fetch_assoc();
+                    }
+                    $doneCount = 0;
+                    if ($stid > 0) {
+                        $c2 = db_query("SELECT COUNT(*) c FROM student_fee_plan WHERE student_id=" . (int) $stid);
+                        $doneCount = $c2 ? (int) $c2->fetch_assoc()['c'] : 0;
+                    }
+                    ?>
+                    <div style="background:#fff; border:1px solid #E5E7EB; border-radius:14px; padding:40px 20px; text-align:center;">
+                        <i class="fa fa-check-circle" style="font-size:54px; color:#25A56A;"></i>
+                        <h3 style="font-size:20px; font-weight:800; color:#111827; margin:14px 0 6px;">Student Added Successfully</h3>
+                        <?php if ($stu): ?>
+                            <p style="font-size:14px; color:#5A6B7B;">
+                                <strong><?php echo e($stu['first_name'] . ' ' . $stu['last_name']); ?></strong>
+                                has been added with GR No <span style="background:#FFF3E6; color:#FF7A1B; font-weight:700; padding:3px 10px; border-radius:6px;"><?php echo e($stu['gr_no']); ?></span>
+                            </p>
+                        <?php endif; ?>
+                        <p style="font-size:13px; color:#8A99A8; margin:6px 0 20px;">
+                            <?php echo $doneCount > 0 ? 'Fee plan saved with ' . $doneCount . ' fee head(s).' : 'No fee plan was saved for this student.'; ?>
+                        </p>
+                        <div style="display:inline-flex; gap:10px; flex-wrap:wrap; justify-content:center;">
+                            <a href="<?php echo BASE_URL; ?>add_student.php" class="btn btn-primary"><i class="fa fa-plus"></i> Add Another Student</a>
+                            <a href="<?php echo BASE_URL; ?>manage_students.php" class="btn btn-default"><i class="fa fa-list"></i> Manage Students</a>
+                        </div>
+                    </div>
+
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -898,9 +1051,10 @@ if (window.jQuery && jQuery.fn.select2) {
     });
 }
 
-// Wizard save/cancel
+// Wizard save/cancel (only on the Student Info step)
 (function () {
     var form = document.getElementById('studentForm');
+    if (!form) return;   // fee/finish steps have no student form
     var redirectModeInput = document.getElementById('redirect_mode');
     var stepWizardItems = document.querySelectorAll('.step-wizard-item');
 
@@ -937,6 +1091,27 @@ if (window.jQuery && jQuery.fn.select2) {
     }
 
     document.getElementById('btnSaveStudent').addEventListener('click', function () { submitWithMode('profile'); });
+})();
+
+// Fee plan total calculator (Step 2)
+(function () {
+    var totalEl = document.getElementById('feePlanTotal');
+    if (!totalEl) return;
+    function recalc() {
+        var total = 0;
+        document.querySelectorAll('.fee-amount').forEach(function (inp) {
+            var row = inp.closest('tr');
+            var discInp = row ? row.querySelector('.fee-discount') : null;
+            var amt = parseFloat(inp.value) || 0;
+            var disc = discInp ? (parseFloat(discInp.value) || 0) : 0;
+            total += amt - disc;
+        });
+        totalEl.textContent = total.toFixed(2);
+    }
+    document.querySelectorAll('.fee-amount, .fee-discount').forEach(function (inp) {
+        inp.addEventListener('input', recalc);
+    });
+    recalc();
 })();
 
 // Documents preview
