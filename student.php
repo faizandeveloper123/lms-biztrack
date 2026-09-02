@@ -119,7 +119,7 @@ include __DIR__ . '/includes/header.php';
                     </div>
                 </div>
                 <div style="margin-left:auto;" class="actions-bar">
-                    <a href="<?php echo BASE_URL; ?>add_student.php?step=fee&student_id=<?php echo (int)$stu['student_id']; ?>" class="btn btn-warning btn-sm"><i class="fa fa-money"></i> Fee Plan</a>
+                    <a href="<?php echo BASE_URL; ?>fee_plan.php?student_id=<?php echo (int)$stu['student_id']; ?>" class="btn btn-warning btn-sm"><i class="fa fa-money"></i> Fee Plan</a>
                     <a href="<?php echo BASE_URL; ?>student_fee_payments_view.php?student_id=<?php echo (int)$stu['student_id']; ?>" class="btn btn-default btn-sm"><i class="fa fa-credit-card"></i> Payments</a>
                     <a href="<?php echo BASE_URL; ?>manage_students.php" class="btn btn-default btn-sm"><i class="fa fa-arrow-left"></i> Back</a>
                 </div>
@@ -243,7 +243,7 @@ include __DIR__ . '/includes/header.php';
                                         <?php endforeach; ?>
                                     </tbody>
                                 </table>
-                                <a href="<?php echo BASE_URL; ?>add_student.php?step=fee&student_id=<?php echo (int)$stu['student_id']; ?>" class="btn btn-warning btn-sm" style="width:100%; margin-top:8px;"><i class="fa fa-pencil"></i> Set Fee Plan</a>
+                                <a href="<?php echo BASE_URL; ?>fee_plan.php?student_id=<?php echo (int)$stu['student_id']; ?>" class="btn btn-warning btn-sm" style="width:100%; margin-top:8px;"><i class="fa fa-pencil"></i> Set Fee Plan</a>
                             <?php endif; ?>
                         <?php endif; ?>
                     </div>
